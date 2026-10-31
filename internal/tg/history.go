@@ -30,10 +30,11 @@ func (s *Service) ReadChat(ctx context.Context, p ReadChatParams) (*ReadChatResu
 		messages []tgapi.MessageClass
 		users    []tgapi.UserClass
 		chats    []tgapi.ChatClass
+		complete bool // the response holds the whole history, not a slice
 	)
 	switch r := resp.(type) {
 	case *tgapi.MessagesMessages:
-		messages, users, chats = r.Messages, r.Users, r.Chats
+		messages, users, chats, complete = r.Messages, r.Users, r.Chats, true
 	case *tgapi.MessagesMessagesSlice:
 		messages, users, chats = r.Messages, r.Users, r.Chats
 	case *tgapi.MessagesChannelMessages:
@@ -43,6 +44,9 @@ func (s *Service) ReadChat(ctx context.Context, p ReadChatParams) (*ReadChatResu
 	}
 
 	s.peers.PutFromResponse(users, chats)
+	if err := s.peers.Save(); err != nil {
+		slog.Warn("save peer cache", "err", err)
+	}
 
 	names := NewNames(users, chats)
 	peerTitle := names.peerTitle(p.ChatType, p.ChatID)
@@ -60,8 +64,14 @@ func (s *Service) ReadChat(ctx context.Context, p ReadChatParams) (*ReadChatResu
 		result.Messages = append(result.Messages, m)
 	}
 
-	if !cutOff && len(result.Messages) > 0 && len(messages) >= p.Limit {
-		next := result.Messages[len(result.Messages)-1].ID
+	// Paging ends only on since_date, an empty page or a complete response.
+	// A short slice does not end it: Telegram may return fewer messages than
+	// asked for in the middle of a chat. This costs one extra call at the end.
+	if !cutOff && !complete && len(messages) > 0 {
+		next := messages[0].GetID()
+		for _, mc := range messages[1:] { // MessageEmpty and MessageService count too
+			next = min(next, mc.GetID())
+		}
 		result.NextBeforeID = &next
 	}
 	return result, nil
@@ -115,15 +125,12 @@ func (s *Service) scanForPeer(ctx context.Context, t ChatType, id int64) (tgapi.
 	return nil, nil
 }
 
-// peerTitle returns the name of the requested chat, or "" when the response
-// does not contain it. PeerName alone would say "Deleted Account" for a
-// private chat whose user is absent.
+// peerTitle returns the name of the requested chat. A private chat whose
+// user is absent from the response is "Deleted Account"; an absent group or
+// channel is "".
 func (n *Names) peerTitle(t ChatType, id int64) string {
 	switch t {
 	case ChatPrivate:
-		if _, ok := n.users[id]; !ok {
-			return ""
-		}
 		return n.PeerName(&tgapi.PeerUser{UserID: id})
 	case ChatGroup:
 		return n.PeerName(&tgapi.PeerChat{ChatID: id})

@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -34,6 +35,21 @@ func TestLoad_SessionPathOverride(t *testing.T) {
 	}
 	if cfg.SessionPath != "/tmp/s.json" || cfg.PeersPath() != "/tmp/peers.json" {
 		t.Fatalf("got %q %q", cfg.SessionPath, cfg.PeersPath())
+	}
+}
+
+func TestLoad_RelativeSessionPathMadeAbsolute(t *testing.T) {
+	rel := filepath.Join("data", "s.json")
+	cfg, err := load(map[string]string{"TELEGRAM_API_ID": "1", "TELEGRAM_API_HASH": "abc", "TELEGRAM_SESSION_PATH": rel})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.Abs(rel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SessionPath != want {
+		t.Fatalf("SessionPath = %q, want %q", cfg.SessionPath, want)
 	}
 }
 

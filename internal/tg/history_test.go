@@ -81,8 +81,86 @@ func TestReadChat_RendersPage(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertMessages(t, res.Messages, []Message{{30, 300, "me", "hi"}, {20, 200, "Ann", "yo"}})
+	// A short slice does not end paging: only an empty page does.
+	if res.NextBeforeID == nil || *res.NextBeforeID != 20 {
+		t.Fatalf("NextBeforeID = %v, want 20", res.NextBeforeID)
+	}
+}
+
+func TestReadChat_EmptyPageEndsPaging(t *testing.T) {
+	s, mock, _ := newTestService(t)
+	s.peers.Put(ChatPrivate, 7, 9)
+	mock.ExpectFunc(func(b bin.Encoder) {
+		assertHistoryRequest(t, historyRequest(t, b), 20, 50)
+	}).ThenResult(&tgapi.MessagesMessagesSlice{Count: 2})
+
+	res, err := s.ReadChat(context.Background(), ReadChatParams{ChatID: 7, ChatType: ChatPrivate, BeforeID: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertMessages(t, res.Messages, []Message{})
 	if res.NextBeforeID != nil {
 		t.Errorf("NextBeforeID = %d, want nil", *res.NextBeforeID)
+	}
+}
+
+func TestReadChat_CompleteResponseEndsPaging(t *testing.T) {
+	s, mock, _ := newTestService(t)
+	s.peers.Put(ChatPrivate, 7, 9)
+	mock.ExpectFunc(func(b bin.Encoder) { historyRequest(t, b) }).
+		ThenResult(&tgapi.MessagesMessages{Messages: twoMessages(), Users: annUsers()})
+
+	res, err := s.ReadChat(context.Background(), ReadChatParams{ChatID: 7, ChatType: ChatPrivate, Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertMessages(t, res.Messages, []Message{{30, 300, "me", "hi"}, {20, 200, "Ann", "yo"}})
+	if res.NextBeforeID != nil {
+		t.Errorf("NextBeforeID = %d, want nil", *res.NextBeforeID)
+	}
+}
+
+func TestReadChat_AllEmptyPageContinues(t *testing.T) {
+	s, mock, _ := newTestService(t)
+	s.peers.Put(ChatPrivate, 7, 9)
+	mock.ExpectFunc(func(b bin.Encoder) { historyRequest(t, b) }).
+		ThenResult(&tgapi.MessagesMessagesSlice{
+			Count:    10,
+			Messages: []tgapi.MessageClass{&tgapi.MessageEmpty{ID: 30}, &tgapi.MessageEmpty{ID: 25}},
+		})
+
+	res, err := s.ReadChat(context.Background(), ReadChatParams{ChatID: 7, ChatType: ChatPrivate, Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertMessages(t, res.Messages, []Message{})
+	if res.NextBeforeID == nil || *res.NextBeforeID != 25 {
+		t.Fatalf("NextBeforeID = %v, want 25", res.NextBeforeID)
+	}
+}
+
+func TestReadChat_PersistsPeers(t *testing.T) {
+	s, mock, path := newTestService(t)
+	s.peers.Put(ChatGroup, 5, 0)
+	mock.ExpectFunc(func(b bin.Encoder) { historyRequest(t, b) }).
+		ThenResult(&tgapi.MessagesMessages{
+			Messages: []tgapi.MessageClass{textMsg(1, 10, &tgapi.PeerUser{UserID: 8}, "hey")},
+			Chats:    []tgapi.ChatClass{&tgapi.Chat{ID: 5, Title: "Team", Photo: &tgapi.ChatPhotoEmpty{}}},
+			Users:    []tgapi.UserClass{&tgapi.User{ID: 8, AccessHash: 88, FirstName: "Bob"}},
+		})
+	if _, err := s.ReadChat(context.Background(), ReadChatParams{ChatID: 5, ChatType: ChatGroup}); err != nil {
+		t.Fatal(err)
+	}
+	fresh := NewPeerCache(path)
+	if err := fresh.Load(); err != nil {
+		t.Fatal(err)
+	}
+	peer, ok := fresh.Get(ChatPrivate, 8)
+	if !ok {
+		t.Fatal("private 8 not in reloaded cache")
+	}
+	if u, ok := peer.(*tgapi.InputPeerUser); !ok || u.AccessHash != 88 {
+		t.Fatalf("peer = %#v, want InputPeerUser with access hash 88", peer)
 	}
 }
 
@@ -156,8 +234,8 @@ func TestReadChat_SkipsMessageEmpty(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertMessages(t, res.Messages, []Message{{30, 300, "Ann", "hi"}})
-	if res.NextBeforeID == nil || *res.NextBeforeID != 30 {
-		t.Fatalf("NextBeforeID = %v, want 30", res.NextBeforeID)
+	if res.NextBeforeID == nil || *res.NextBeforeID != 25 {
+		t.Fatalf("NextBeforeID = %v, want 25", res.NextBeforeID)
 	}
 }
 
@@ -237,7 +315,8 @@ func TestReadChat_PeerTitleAbsent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertMessages(t, res.Messages, []Message{{1, 10, "", "hi"}})
+	// Private chat whose user is absent: "Deleted Account", never an empty from.
+	assertMessages(t, res.Messages, []Message{{1, 10, "Deleted Account", "hi"}})
 }
 
 // expectScanPage expects one resolve scan getDialogs call for the folder,

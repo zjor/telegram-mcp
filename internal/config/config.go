@@ -38,5 +38,12 @@ func Load(getenv func(string) string, homeDir string) (Config, error) {
 	if session == "" {
 		session = filepath.Join(homeDir, ".config", "telegram-mcp", "session.json")
 	}
+	if !filepath.IsAbs(session) {
+		abs, err := filepath.Abs(session)
+		if err != nil {
+			return Config{}, fmt.Errorf("TELEGRAM_SESSION_PATH: %w", err)
+		}
+		session = abs
+	}
 	return Config{APIID: id, APIHash: hash, SessionPath: session}, nil
 }

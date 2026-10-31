@@ -77,6 +77,8 @@ Input:
 
 Output: `{ "chats": [...], "next_cursor": string|null }`. `next_cursor` is `null` on the last page.
 
+Pinned chats appear only on the first page. Later pages skip them. Limitation: if you have more pinned chats than the first page's `limit`, the extra pinned chats are not listed. With the default limit 50 this cannot happen, because Telegram allows far fewer pins.
+
 Each chat:
 
 | Field | Notes |
@@ -116,7 +118,7 @@ Each message:
 
 Placeholders for media: `[photo]`, `[video]`, `[voice]`, `[audio]`, `[video_note]`, `[sticker]`, `[gif]`, `[document name]`, `[location]`, `[contact]`, `[poll]`, `[media]`. A document without a file name is `[document]`. Service messages appear as `[service: ...]` (for example `[service: message pinned]`). Other service messages are plain `[service]`.
 
-`next_before_id` is the id of the oldest message returned. It is `null` when the start of the chat is reached, or when `since_date` cut the page off.
+`next_before_id` is the lowest message id on the page Telegram returned. Deleted and service entries count too, so it can be lower than the last `id` in `messages`. Paging ends when a call returns no messages: then `next_before_id` is `null`. It is also `null` when Telegram returned the whole chat in one call, or when `since_date` cut the page off. A page can have an empty `messages` list and a non-null `next_before_id`; keep paging.
 
 If the chat is not in the local peer cache, the server scans your dialogs (main and archive, at most 20 pages per folder) to find it. If it still cannot find it, it returns an error that tells you to call `list_chats`.
 
@@ -161,4 +163,9 @@ Run these checks yourself after the first setup.
 - [ ] `TELEGRAM_API_ID=… TELEGRAM_API_HASH=… ./telegram-mcp login` prints `Logged in as <name>`. `ls -l ~/.config/telegram-mcp/session.json` shows `-rw-------`.
 - [ ] Register the server with `claude mcp add telegram -e TELEGRAM_API_ID=… -e TELEGRAM_API_HASH=… -- /absolute/path/to/telegram-mcp serve`. In Claude Code, call `list_chats`: your chats appear. Call `list_chats` with `folder=archive`: archived chats appear.
 - [ ] Call `read_chat` for one private chat. Call it again with `before_id` set to `next_before_id`. The messages continue further back in time.
+- [ ] On an account with pinned chats, call `list_chats` with `limit=2`. Page with `cursor` until `next_cursor` is `null`. Compare the list with the Telegram app: every chat appears once, none is missing.
+- [ ] Call `read_chat` on a supergroup and on a channel. Page each at least 3 times with `before_id`, until `next_before_id` is `null`.
+- [ ] Restart `serve`. Call `read_chat` on an archived chat without calling `list_chats` first. It works because the peer cache is persisted.
+- [ ] `ls -l ~/.config/telegram-mcp/peers.json` shows `-rw-------`.
 - [ ] `TELEGRAM_API_ID=1 TELEGRAM_API_HASH=x TELEGRAM_SESSION_PATH=/tmp/none.json ./telegram-mcp serve` exits with code 3 and prints the `run "telegram-mcp login" first` hint.
+- [ ] `./telegram-mcp logout` prints `Logged out` and removes both `session.json` and `peers.json`.
