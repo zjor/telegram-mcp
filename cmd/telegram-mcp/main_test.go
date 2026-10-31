@@ -7,7 +7,7 @@ import (
 )
 
 func TestRun_Dispatch(t *testing.T) {
-	for _, args := range [][]string{nil, {"bogus"}, {"serve"}, {"login"}, {"logout"}} {
+	for _, args := range [][]string{nil, {"bogus"}, {"serve", "--transport", "http"}, {"login"}, {"logout"}} {
 		var out, errb bytes.Buffer
 		if code := run(args, &out, &errb); code != 2 {
 			t.Errorf("run(%v) = %d, want 2", args, code)
