@@ -3,10 +3,12 @@ package tg
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 
 	"github.com/gotd/td/bin"
 	tgapi "github.com/gotd/td/tg"
+	"github.com/gotd/td/tgmock"
 )
 
 func historyRequest(t *testing.T, b bin.Encoder) *tgapi.MessagesGetHistoryRequest {
@@ -199,7 +201,8 @@ func TestReadChat_DeletedSender(t *testing.T) {
 }
 
 func TestReadChat_UnknownPeer(t *testing.T) {
-	s, _, _ := newTestService(t) // no expectations: any RPC fails the test
+	s, mock, _ := newTestService(t)
+	expectEmptyScan(t, mock) // no getHistory expectation: that RPC would fail the test
 	_, err := s.ReadChat(context.Background(), ReadChatParams{ChatID: 7, ChatType: ChatPrivate})
 	if !errors.Is(err, ErrUnknownChat) {
 		t.Fatalf("err = %v, want ErrUnknownChat", err)
@@ -235,4 +238,119 @@ func TestReadChat_PeerTitleAbsent(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertMessages(t, res.Messages, []Message{{1, 10, "", "hi"}})
+}
+
+// expectScanPage expects one resolve scan getDialogs call for the folder,
+// with Limit 100 and an empty offset.
+func expectScanPage(t *testing.T, mock *tgmock.Mock, folder int, resp tgapi.MessagesDialogsClass) {
+	t.Helper()
+	mock.ExpectFunc(func(b bin.Encoder) {
+		req := dialogsRequest(t, b)
+		assertFolderID(t, req, folder)
+		if req.Limit != 100 {
+			t.Errorf("Limit = %d, want 100", req.Limit)
+		}
+		assertEmptyOffsetPeer(t, req)
+		if req.OffsetDate != 0 || req.OffsetID != 0 {
+			t.Errorf("OffsetDate/OffsetID = %d/%d, want 0/0", req.OffsetDate, req.OffsetID)
+		}
+	}).ThenResult(resp)
+}
+
+// expectEmptyScan expects the main then the archive folder, both complete and empty.
+func expectEmptyScan(t *testing.T, mock *tgmock.Mock) {
+	t.Helper()
+	expectScanPage(t, mock, 0, &tgapi.MessagesDialogs{})
+	expectScanPage(t, mock, 1, &tgapi.MessagesDialogs{})
+}
+
+// expectAnnHistory expects getHistory for InputPeerUser{7, 9}.
+func expectAnnHistory(t *testing.T, mock *tgmock.Mock) {
+	t.Helper()
+	mock.ExpectFunc(func(b bin.Encoder) {
+		req := historyRequest(t, b)
+		peer, ok := req.Peer.(*tgapi.InputPeerUser)
+		if !ok || peer.UserID != 7 || peer.AccessHash != 9 {
+			t.Errorf("Peer = %#v, want InputPeerUser{7, 9}", req.Peer)
+		}
+	}).ThenResult(&tgapi.MessagesMessages{Messages: twoMessages(), Users: annUsers()})
+}
+
+func annDialogs() *tgapi.MessagesDialogs {
+	pu := &tgapi.PeerUser{UserID: 7}
+	return &tgapi.MessagesDialogs{
+		Dialogs:  []tgapi.DialogClass{dlg(pu, 30, 0)},
+		Messages: []tgapi.MessageClass{msg(30, 300, pu)},
+		Users:    annUsers(),
+	}
+}
+
+func readAnn(t *testing.T, s *Service) {
+	t.Helper()
+	res, err := s.ReadChat(context.Background(), ReadChatParams{ChatID: 7, ChatType: ChatPrivate})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertMessages(t, res.Messages, []Message{{30, 300, "me", "hi"}, {20, 200, "Ann", "yo"}})
+}
+
+func TestResolvePeer_ScansMainFolder(t *testing.T) {
+	s, mock, _ := newTestService(t)
+	expectScanPage(t, mock, 0, annDialogs())
+	expectAnnHistory(t, mock)
+	readAnn(t, s)
+}
+
+func TestResolvePeer_ScansArchiveAfterMain(t *testing.T) {
+	s, mock, _ := newTestService(t)
+	other := &tgapi.PeerUser{UserID: 8}
+	expectScanPage(t, mock, 0, &tgapi.MessagesDialogs{
+		Dialogs:  []tgapi.DialogClass{dlg(other, 1, 0)},
+		Messages: []tgapi.MessageClass{msg(1, 10, other)},
+		Users:    []tgapi.UserClass{&tgapi.User{ID: 8, AccessHash: 88, FirstName: "Bob"}},
+	})
+	expectScanPage(t, mock, 1, annDialogs())
+	expectAnnHistory(t, mock)
+	readAnn(t, s)
+}
+
+func TestResolvePeer_NotFoundAnywhere(t *testing.T) {
+	s, mock, path := newTestService(t)
+	expectEmptyScan(t, mock) // no getHistory expectation: that RPC would fail the test
+	_, err := s.ReadChat(context.Background(), ReadChatParams{ChatID: 7, ChatType: ChatPrivate})
+	if !errors.Is(err, ErrUnknownChat) {
+		t.Fatalf("err = %v, want ErrUnknownChat", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("peer cache not saved after scan: %v", err)
+	}
+}
+
+func TestResolvePeer_PagesUntilFound(t *testing.T) {
+	s, mock, _ := newTestService(t)
+	page := &tgapi.MessagesDialogsSlice{Count: 500}
+	for i := 0; i < 100; i++ {
+		id := int64(1000 + i)
+		pu := &tgapi.PeerUser{UserID: id}
+		page.Dialogs = append(page.Dialogs, dlg(pu, 5000+i, 0))
+		page.Messages = append(page.Messages, msg(5000+i, 90000-i, pu))
+		page.Users = append(page.Users, &tgapi.User{ID: id, AccessHash: id * 10, FirstName: "U"})
+	}
+	expectScanPage(t, mock, 0, page)
+	mock.ExpectFunc(func(b bin.Encoder) {
+		req := dialogsRequest(t, b)
+		assertFolderID(t, req, 0)
+		if req.Limit != 100 {
+			t.Errorf("Limit = %d, want 100", req.Limit)
+		}
+		if req.OffsetDate != 90000-99 || req.OffsetID != 5099 {
+			t.Errorf("OffsetDate/OffsetID = %d/%d, want %d/5099", req.OffsetDate, req.OffsetID, 90000-99)
+		}
+		peer, ok := req.OffsetPeer.(*tgapi.InputPeerUser)
+		if !ok || peer.UserID != 1099 || peer.AccessHash != 10990 {
+			t.Errorf("OffsetPeer = %#v, want InputPeerUser{1099, 10990}", req.OffsetPeer)
+		}
+	}).ThenResult(annDialogs())
+	expectAnnHistory(t, mock)
+	readAnn(t, s)
 }

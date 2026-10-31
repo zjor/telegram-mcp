@@ -3,6 +3,7 @@ package tg
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	tgapi "github.com/gotd/td/tg"
 )
@@ -66,12 +67,59 @@ func (s *Service) ReadChat(ctx context.Context, p ReadChatParams) (*ReadChatResu
 	return result, nil
 }
 
-// resolvePeer returns the input peer for a chat from the peer cache.
-func (s *Service) resolvePeer(_ context.Context, t ChatType, id int64) (tgapi.InputPeerClass, error) {
+// Resolve scan limits: page size and the most pages read per folder.
+const (
+	resolvePageSize = 100
+	resolveMaxPages = 20
+)
+
+// resolvePeer returns the input peer for a chat. On a cache miss it scans the
+// main folder, then the archive folder, page by page, until the peer is cached.
+func (s *Service) resolvePeer(ctx context.Context, t ChatType, id int64) (tgapi.InputPeerClass, error) {
 	if peer, ok := s.peers.Get(t, id); ok {
 		return peer, nil
 	}
-	return nil, ErrUnknownChat
+	peer, err := s.scanForPeer(ctx, t, id)
+	if saveErr := s.peers.Save(); saveErr != nil {
+		slog.Warn("save peer cache", "err", saveErr)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if peer == nil {
+		return nil, ErrUnknownChat
+	}
+	return peer, nil
+}
+
+// scanForPeer pages through folders 0 and 1 and stores every page in the
+// peer cache. It returns nil, nil when the peer is not found.
+func (s *Service) scanForPeer(ctx context.Context, t ChatType, id int64) (tgapi.InputPeerClass, error) {
+	for _, folderID := range []int{0, 1} {
+		var c *cursor
+		for i := 0; i < resolveMaxPages; i++ {
+			page, err := s.fetchDialogs(ctx, folderID, c, resolvePageSize)
+			if err != nil {
+				return nil, err
+			}
+			s.peers.PutFromResponse(page.users, page.chats)
+			if peer, ok := s.peers.Get(t, id); ok {
+				return peer, nil
+			}
+			if page.complete || len(page.dialogs) == 0 {
+				break
+			}
+			last := page.dialogs[len(page.dialogs)-1]
+			chat := NewNames(page.users, page.chats).dialogChat(last.Peer)
+			c = &cursor{
+				Date:     topMessageDate(page.messages, last.TopMessage, last.Peer),
+				ID:       last.TopMessage,
+				PeerType: chat.Type,
+				PeerID:   chat.ID,
+			}
+		}
+	}
+	return nil, nil
 }
 
 // peerTitle returns the name of the requested chat, or "" when the response

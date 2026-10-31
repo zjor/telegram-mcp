@@ -12,17 +12,76 @@ func (s *Service) ListChats(ctx context.Context, p ListChatsParams) (*ListChatsR
 	if p.Limit == 0 {
 		p.Limit = DefaultLimit
 	}
-	req := &tgapi.MessagesGetDialogsRequest{Limit: p.Limit, OffsetPeer: &tgapi.InputPeerEmpty{}}
-	if p.Folder == FolderArchive {
-		req.SetFolderID(1)
-	} else {
-		req.SetFolderID(0)
+	folder := p.Folder
+	if folder != FolderArchive {
+		folder = FolderMain
 	}
+	folderID := 0
+	if folder == FolderArchive {
+		folderID = 1
+	}
+	var c *cursor
 	if p.Cursor != "" {
-		c, err := decodeCursor(p.Cursor)
+		dc, err := decodeCursor(p.Cursor)
 		if err != nil {
 			return nil, err
 		}
+		c = &dc
+	}
+
+	page, err := s.fetchDialogs(ctx, folderID, c, p.Limit)
+	if err != nil {
+		return nil, err
+	}
+	if page.notModified {
+		return &ListChatsResult{Chats: []Chat{}}, nil
+	}
+
+	s.peers.PutFromResponse(page.users, page.chats)
+	if err := s.peers.Save(); err != nil {
+		slog.Warn("save peer cache", "err", err)
+	}
+
+	names := NewNames(page.users, page.chats)
+	result := &ListChatsResult{Chats: []Chat{}}
+	var last *cursor
+	for _, d := range page.dialogs {
+		chat := names.dialogChat(d.Peer)
+		date := topMessageDate(page.messages, d.TopMessage, d.Peer)
+		chat.LastMessageDate = int64(date)
+		chat.UnreadCount = d.UnreadCount
+		chat.Folder = folder
+		result.Chats = append(result.Chats, chat)
+		last = &cursor{Date: date, ID: d.TopMessage, PeerType: chat.Type, PeerID: chat.ID}
+	}
+
+	if !page.complete && last != nil {
+		next := encodeCursor(*last)
+		result.NextCursor = &next
+	}
+	return result, nil
+}
+
+// dialogsPage is one messages.getDialogs response. dialogs holds only
+// *tgapi.Dialog entries (DialogFolder and others are dropped). complete means
+// there is no next page: a full MessagesDialogs, a short or empty slice, or
+// MessagesDialogsNotModified (which also sets notModified).
+type dialogsPage struct {
+	dialogs     []*tgapi.Dialog
+	users       []tgapi.UserClass
+	chats       []tgapi.ChatClass
+	messages    []tgapi.MessageClass
+	complete    bool
+	notModified bool
+}
+
+// fetchDialogs requests one page of dialogs in the folder (0 main, 1 archive)
+// starting after c (nil for the first page). The offset peer is taken from
+// the peer cache; it stays empty when the cache misses.
+func (s *Service) fetchDialogs(ctx context.Context, folderID int, c *cursor, limit int) (dialogsPage, error) {
+	req := &tgapi.MessagesGetDialogsRequest{Limit: limit, OffsetPeer: &tgapi.InputPeerEmpty{}}
+	req.SetFolderID(folderID)
+	if c != nil {
 		req.OffsetDate = c.Date
 		req.OffsetID = c.ID
 		if peer, ok := s.peers.Get(c.PeerType, c.PeerID); ok {
@@ -32,56 +91,28 @@ func (s *Service) ListChats(ctx context.Context, p ListChatsParams) (*ListChatsR
 
 	resp, err := s.api.MessagesGetDialogs(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("messages.getDialogs: %w", err)
+		return dialogsPage{}, fmt.Errorf("messages.getDialogs: %w", err)
 	}
 
 	var (
-		dialogs  []tgapi.DialogClass
-		messages []tgapi.MessageClass
-		users    []tgapi.UserClass
-		chats    []tgapi.ChatClass
-		complete bool
+		page dialogsPage
+		raw  []tgapi.DialogClass
 	)
 	switch r := resp.(type) {
 	case *tgapi.MessagesDialogs:
-		dialogs, messages, users, chats, complete = r.Dialogs, r.Messages, r.Users, r.Chats, true
+		raw, page.messages, page.users, page.chats, page.complete = r.Dialogs, r.Messages, r.Users, r.Chats, true
 	case *tgapi.MessagesDialogsSlice:
-		dialogs, messages, users, chats = r.Dialogs, r.Messages, r.Users, r.Chats
+		raw, page.messages, page.users, page.chats = r.Dialogs, r.Messages, r.Users, r.Chats
+		page.complete = len(raw) == 0 || len(raw) < limit
 	default: // *tgapi.MessagesDialogsNotModified
-		return &ListChatsResult{Chats: []Chat{}}, nil
+		return dialogsPage{complete: true, notModified: true}, nil
 	}
-
-	s.peers.PutFromResponse(users, chats)
-	if err := s.peers.Save(); err != nil {
-		slog.Warn("save peer cache", "err", err)
-	}
-
-	names := NewNames(users, chats)
-	folder := p.Folder
-	if folder != FolderArchive {
-		folder = FolderMain
-	}
-	result := &ListChatsResult{Chats: []Chat{}}
-	var last *cursor
-	for _, dc := range dialogs {
-		d, ok := dc.(*tgapi.Dialog)
-		if !ok {
-			continue // DialogFolder, DialogCommunity
+	for _, dc := range raw {
+		if d, ok := dc.(*tgapi.Dialog); ok {
+			page.dialogs = append(page.dialogs, d)
 		}
-		chat := names.dialogChat(d.Peer)
-		date := topMessageDate(messages, d.TopMessage, d.Peer)
-		chat.LastMessageDate = int64(date)
-		chat.UnreadCount = d.UnreadCount
-		chat.Folder = folder
-		result.Chats = append(result.Chats, chat)
-		last = &cursor{Date: date, ID: d.TopMessage, PeerType: chat.Type, PeerID: chat.ID}
 	}
-
-	if !complete && len(dialogs) >= p.Limit && last != nil {
-		next := encodeCursor(*last)
-		result.NextCursor = &next
-	}
-	return result, nil
+	return page, nil
 }
 
 // dialogChat fills ID, Type, Title and Username for a dialog peer.
