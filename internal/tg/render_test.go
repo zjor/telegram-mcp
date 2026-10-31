@@ -157,3 +157,16 @@ func TestRenderMessage(t *testing.T) {
 		t.Errorf("ID/Date not copied: %+v", got)
 	}
 }
+
+func TestNames_PeerName_IDCollision(t *testing.T) {
+	n := NewNames(nil, []tgapi.ChatClass{
+		&tgapi.Chat{ID: 5, Title: "Team"},
+		&tgapi.Channel{ID: 5, Title: "News"},
+	})
+	if got := n.PeerName(&tgapi.PeerChat{ChatID: 5}); got != "Team" {
+		t.Errorf("PeerChat: got %q, want Team", got)
+	}
+	if got := n.PeerName(&tgapi.PeerChannel{ChannelID: 5}); got != "News" {
+		t.Errorf("PeerChannel: got %q, want News", got)
+	}
+}

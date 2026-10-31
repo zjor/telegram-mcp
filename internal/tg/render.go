@@ -10,19 +10,29 @@ const deletedAccount = "Deleted Account"
 
 // Names resolves sender/peer display names from the users/chats arrays of one RPC response.
 type Names struct {
-	users map[int64]*tgapi.User
-	chats map[int64]tgapi.ChatClass
+	users    map[int64]*tgapi.User
+	chats    map[int64]tgapi.ChatClass // Chat, ChatForbidden
+	channels map[int64]tgapi.ChatClass // Channel, ChannelForbidden
 }
 
 func NewNames(users []tgapi.UserClass, chats []tgapi.ChatClass) *Names {
-	n := &Names{users: map[int64]*tgapi.User{}, chats: map[int64]tgapi.ChatClass{}}
+	n := &Names{
+		users:    map[int64]*tgapi.User{},
+		chats:    map[int64]tgapi.ChatClass{},
+		channels: map[int64]tgapi.ChatClass{},
+	}
 	for _, uc := range users {
 		if u, ok := uc.(*tgapi.User); ok {
 			n.users[u.ID] = u
 		}
 	}
 	for _, c := range chats {
-		n.chats[c.GetID()] = c
+		switch c.(type) {
+		case *tgapi.Channel, *tgapi.ChannelForbidden:
+			n.channels[c.GetID()] = c
+		default:
+			n.chats[c.GetID()] = c
+		}
 	}
 	return n
 }
@@ -40,7 +50,7 @@ func (n *Names) PeerName(p tgapi.PeerClass) string {
 	case *tgapi.PeerChat:
 		return chatTitle(n.chats[p.ChatID])
 	case *tgapi.PeerChannel:
-		return chatTitle(n.chats[p.ChannelID])
+		return chatTitle(n.channels[p.ChannelID])
 	}
 	return ""
 }
