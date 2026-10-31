@@ -97,7 +97,7 @@ Input:
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `chat_id` | int64, required | `id` from `list_chats`. A missing value is rejected by the input schema. |
+| `chat_id` | int64, required | `id` from `list_chats`. A missing value is rejected by the input schema. `0` passes the schema and fails with `chat_id is required`. |
 | `chat_type` | string, required | `type` from `list_chats` |
 | `limit` | int, optional | 1-100. Default 50. |
 | `before_id` | int, optional | Return only messages with an id lower than this. |
@@ -112,13 +112,13 @@ Each message:
 | `id` | int |
 | `date` | Unix seconds |
 | `from` | Sender name. The channel title for channels. `me` for your own messages. |
-| `text` | The message text, or a placeholder (see below) |
+| `text` | The message text. For media, a placeholder (see below), followed by the caption if there is one, for example `[photo] caption`. |
 
-Placeholders for messages without text: `[photo]`, `[video]`, `[voice]`, `[video_note]`, `[sticker]`, `[gif]`, `[document name]`, `[location]`, `[contact]`, `[poll]`, `[media]`. Service messages appear as `[service: ...]`.
+Placeholders for media: `[photo]`, `[video]`, `[voice]`, `[audio]`, `[video_note]`, `[sticker]`, `[gif]`, `[document name]`, `[location]`, `[contact]`, `[poll]`, `[media]`. A document without a file name is `[document]`. Service messages appear as `[service: ...]` (for example `[service: message pinned]`). Other service messages are plain `[service]`.
 
 `next_before_id` is the id of the oldest message returned. It is `null` when the start of the chat is reached, or when `since_date` cut the page off.
 
-If the chat is not in the local peer cache, the server scans your dialogs (main and archive) to find it. If it still cannot find it, it returns an error that tells you to call `list_chats`.
+If the chat is not in the local peer cache, the server scans your dialogs (main and archive, at most 20 pages per folder) to find it. If it still cannot find it, it returns an error that tells you to call `list_chats`.
 
 ### Paging example
 
@@ -142,7 +142,7 @@ Telegram flood waits of up to 60 s are waited out inside the server. Longer ones
 | `session.json` | Your Telegram session. Treat it like a password. |
 | `peers.json` | Cache of chat access data. It is in the same folder as the session file. |
 
-Both files have mode 0600.
+Both files have mode 0600. `peers.json` is created on the first successful `list_chats` or `read_chat`.
 
 Run only one server instance at a time. The files are not locked.
 
