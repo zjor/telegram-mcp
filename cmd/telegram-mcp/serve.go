@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/gotd/td/telegram"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/zjor/telegram-mcp/internal/config"
 	"github.com/zjor/telegram-mcp/internal/mcpserver"
@@ -79,12 +80,7 @@ func runServe(args []string, stderr io.Writer) int {
 }
 
 func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
-	client := tg.NewClient(tg.ClientConfig{
-		APIID:       cfg.APIID,
-		APIHash:     cfg.APIHash,
-		SessionPath: cfg.SessionPath,
-		Logger:      logger,
-	})
+	client := newClient(cfg, logger)
 	return client.Run(ctx, func(ctx context.Context) error {
 		status, err := client.Auth().Status(ctx)
 		if err != nil {
@@ -101,5 +97,15 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		// *telegram.Client implements tgapi.Invoker; client.API() does not.
 		svc := tg.NewService(client, peers)
 		return mcpserver.New(svc).Run(ctx, &mcp.StdioTransport{})
+	})
+}
+
+// newClient builds the gotd client shared by serve, login and logout.
+func newClient(cfg config.Config, logger *slog.Logger) *telegram.Client {
+	return tg.NewClient(tg.ClientConfig{
+		APIID:       cfg.APIID,
+		APIHash:     cfg.APIHash,
+		SessionPath: cfg.SessionPath,
+		Logger:      logger,
 	})
 }

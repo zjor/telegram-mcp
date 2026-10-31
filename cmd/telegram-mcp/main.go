@@ -40,13 +40,3 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 }
-
-func runLogin(stdout, stderr io.Writer) int {
-	fmt.Fprintln(stderr, "not implemented")
-	return 2
-}
-
-func runLogout(stdout, stderr io.Writer) int {
-	fmt.Fprintln(stderr, "not implemented")
-	return 2
-}

@@ -7,6 +7,10 @@ import (
 )
 
 func TestRun_Dispatch(t *testing.T) {
+	// login and logout fail on config before any network I/O.
+	for _, k := range []string{"TELEGRAM_API_ID", "TELEGRAM_API_HASH", "TELEGRAM_SESSION_PATH"} {
+		t.Setenv(k, "")
+	}
 	for _, args := range [][]string{nil, {"bogus"}, {"serve", "--transport", "http"}, {"login"}, {"logout"}} {
 		var out, errb bytes.Buffer
 		if code := run(args, &out, &errb); code != 2 {
