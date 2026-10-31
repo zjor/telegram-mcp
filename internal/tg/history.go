@@ -116,7 +116,9 @@ func (s *Service) scanForPeer(ctx context.Context, t ChatType, id int64) (tgapi.
 			if peer, ok := s.peers.Get(t, id); ok {
 				return peer, nil
 			}
-			c = nextCursor(folderID, page, NewNames(page.users, page.chats))
+			// nil means this folder is complete. That includes a later page
+			// with no usable dialog: see nextCursor for why it ends paging.
+			c = nextCursor(folderID, page, NewNames(page.users, page.chats), c != nil)
 			if c == nil {
 				break
 			}

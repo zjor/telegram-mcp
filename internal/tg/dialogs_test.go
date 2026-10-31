@@ -454,3 +454,38 @@ func TestListChats_CursorFromLastUnpinned(t *testing.T) {
 		t.Fatalf("cursor = %+v, want %+v", c, want)
 	}
 }
+
+func TestListChats_LaterPageWithoutUsableDialogEndsPaging(t *testing.T) {
+	s, mock, _ := newTestService(t)
+	pc, pu := &tgapi.PeerChat{ChatID: 5}, &tgapi.PeerUser{UserID: 7}
+	chats := []tgapi.ChatClass{&tgapi.Chat{ID: 5, Title: "Team", Photo: &tgapi.ChatPhotoEmpty{}}}
+	users := []tgapi.UserClass{&tgapi.User{ID: 7, AccessHash: 777, FirstName: "Ann"}}
+	mock.ExpectFunc(func(b bin.Encoder) { dialogsRequest(t, b) }).ThenResult(&tgapi.MessagesDialogsSlice{
+		Count:    10,
+		Dialogs:  []tgapi.DialogClass{dlg(pc, 20, 0), dlg(pu, 21, 0)},
+		Messages: []tgapi.MessageClass{msg(20, 500, pc), msg(21, 400, pu)},
+		Chats:    chats, Users: users,
+	})
+	res, err := s.ListChats(context.Background(), ListChatsParams{Folder: FolderMain, Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.NextCursor == nil {
+		t.Fatal("first page: NextCursor is nil, want a cursor")
+	}
+
+	// Later page: both top messages are missing, so no dialog gives an offset.
+	mock.ExpectFunc(func(b bin.Encoder) { dialogsRequest(t, b) }).ThenResult(&tgapi.MessagesDialogsSlice{
+		Count:   10,
+		Dialogs: []tgapi.DialogClass{dlg(pc, 30, 0), dlg(pu, 31, 0)},
+		Chats:   chats, Users: users,
+	})
+	res, err = s.ListChats(context.Background(), ListChatsParams{Folder: FolderMain, Limit: 2, Cursor: *res.NextCursor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.NextCursor != nil {
+		c, _ := decodeCursor(*res.NextCursor)
+		t.Fatalf("later page: NextCursor = %+v, want nil", c)
+	}
+}

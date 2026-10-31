@@ -55,8 +55,8 @@ func (s *Service) ListChats(ctx context.Context, p ListChatsParams) (*ListChatsR
 		result.Chats = append(result.Chats, chat)
 	}
 
-	if c := nextCursor(folderID, page, names); c != nil {
-		next := encodeCursor(*c)
+	if nc := nextCursor(folderID, page, names, c != nil); nc != nil {
+		next := encodeCursor(*nc)
 		result.NextCursor = &next
 	}
 	return result, nil
@@ -65,15 +65,21 @@ func (s *Service) ListChats(ctx context.Context, p ListChatsParams) (*ListChatsR
 // nextCursor returns the cursor for the page after this one, or nil when the
 // page is the last one. The offset comes from the last dialog that is not
 // pinned and whose top message is in the response: pinned dialogs have
-// arbitrary dates, and a zero date would restart the listing. When no dialog
-// qualifies (a pinned-only page), it returns the FromTop cursor, which
-// restarts at the top of the unpinned dialogs.
+// arbitrary dates, and a zero date would restart the listing. hadCursor says
+// whether the request for this page carried a cursor.
+//
+// When no dialog qualifies on the first page (hadCursor false, for example a
+// pinned-only page), it returns the FromTop cursor, which restarts at the top
+// of the unpinned dialogs. On a later page (hadCursor true) it returns nil and
+// paging ends: that request already excluded pinned dialogs, so emitting
+// FromTop again would restart the same unpinned list and the caller would
+// loop forever.
 //
 // Every request with a cursor excludes pinned dialogs, so pinned dialogs
 // appear only on the first page. Known limitation: pinned dialogs beyond the
 // first page's limit are not listed. With the default limit 50 this cannot
 // happen, because Telegram allows far fewer pins.
-func nextCursor(folderID int, page dialogsPage, names *Names) *cursor {
+func nextCursor(folderID int, page dialogsPage, names *Names, hadCursor bool) *cursor {
 	if page.complete {
 		return nil
 	}
@@ -88,6 +94,9 @@ func nextCursor(folderID int, page dialogsPage, names *Names) *cursor {
 		}
 		chat := names.dialogChat(d.Peer)
 		return &cursor{Date: date, ID: d.TopMessage, PeerType: chat.Type, PeerID: chat.ID, Folder: folderID}
+	}
+	if hadCursor {
+		return nil
 	}
 	return &cursor{Folder: folderID, FromTop: true}
 }
