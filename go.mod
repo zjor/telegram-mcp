@@ -1,12 +1,12 @@
 module github.com/zjor/telegram-mcp
 
-go 1.26.0
+go 1.25.1
 
 require (
 	github.com/gotd/contrib v0.25.0
 	github.com/gotd/td v0.163.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
-	golang.org/x/term v0.47.0
+	golang.org/x/term v0.45.0
 )
 
 require (
@@ -51,7 +51,7 @@ require (
 	golang.org/x/net v0.57.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/tools v0.48.0 // indirect
