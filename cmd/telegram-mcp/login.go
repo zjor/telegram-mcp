@@ -29,8 +29,32 @@ type termAuth struct {
 
 var _ auth.UserAuthenticator = termAuth{}
 
-func (a termAuth) readLine(prompt string) (string, error) {
+// ask prints prompt and runs read in a goroutine, so a cancelled ctx ends the
+// prompt at once. The abandoned read stays blocked on stdin until the process exits.
+func (a termAuth) ask(ctx context.Context, prompt string, read func() (string, error)) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	fmt.Fprint(a.out, prompt)
+	type result struct {
+		s   string
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		s, err := read()
+		ch <- result{s, err}
+	}()
+	select {
+	case r := <-ch:
+		return r.s, r.err
+	case <-ctx.Done():
+		fmt.Fprintln(a.out)
+		return "", ctx.Err()
+	}
+}
+
+func (a termAuth) readLine() (string, error) {
 	line, err := a.in.ReadString('\n')
 	if err != nil && !(errors.Is(err, io.EOF) && line != "") {
 		return "", err
@@ -39,16 +63,15 @@ func (a termAuth) readLine(prompt string) (string, error) {
 }
 
 func (a termAuth) Phone(ctx context.Context) (string, error) {
-	return a.readLine("Phone number (international format): ")
+	return a.ask(ctx, "Phone number (international format): ", a.readLine)
 }
 
 func (a termAuth) Code(ctx context.Context, _ *tgapi.AuthSentCode) (string, error) {
-	return a.readLine("Code: ")
+	return a.ask(ctx, "Code: ", a.readLine)
 }
 
 func (a termAuth) Password(ctx context.Context) (string, error) {
-	fmt.Fprint(a.out, "2FA password: ")
-	return a.readPassword()
+	return a.ask(ctx, "2FA password: ", a.readPassword)
 }
 
 func (a termAuth) AcceptTermsOfService(ctx context.Context, _ tgapi.HelpTermsOfService) error {
@@ -83,7 +106,13 @@ func runLogin(stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// If Ctrl-C ends the password prompt, term.ReadPassword never restores echo.
+	if st, err := term.GetState(int(os.Stdin.Fd())); err == nil {
+		defer term.Restore(int(os.Stdin.Fd()), st)
+	}
+
 	client := newClient(cfg, slog.New(slog.NewTextHandler(stderr, nil)))
+	loggedIn := false
 	ta := termAuth{in: bufio.NewReader(os.Stdin), out: stdout, readPassword: stdinPassword(stdout)}
 	err = client.Run(ctx, func(ctx context.Context) error {
 		if err := client.Auth().IfNecessary(ctx, auth.NewFlow(ta, auth.SendCodeOptions{})); err != nil {
@@ -94,10 +123,21 @@ func runLogin(stdout, stderr io.Writer) int {
 			return err
 		}
 		fmt.Fprintf(stdout, "Logged in as %s\n", tg.UserName(self))
+		loggedIn = true
 		return nil
 	})
+	return loginExit(err, loggedIn, stderr)
+}
+
+// loginExit maps the result of client.Run to an exit code. gotd's Run returns
+// nil when ctx is cancelled, so success needs loggedIn as well as a nil error.
+func loginExit(err error, loggedIn bool, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if !loggedIn {
+		fmt.Fprintln(stderr, "login interrupted")
 		return 1
 	}
 	return 0
@@ -121,6 +161,10 @@ func runLogout(stdout, stderr io.Writer) int {
 		_, err := client.API().AuthLogOut(ctx)
 		return err
 	})
+	// gotd's Run returns nil when ctx is cancelled.
+	if err == nil && ctx.Err() != nil {
+		err = ctx.Err()
+	}
 	if err != nil {
 		fmt.Fprintf(stderr, "server logout failed: %v; removing local files anyway\n", err)
 	}

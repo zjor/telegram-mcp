@@ -4,8 +4,11 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
+	"io"
 	"strings"
 	"testing"
+	"time"
 
 	tgapi "github.com/gotd/td/tg"
 )
@@ -58,5 +61,73 @@ func TestRunLogout_NoSession(t *testing.T) {
 	}
 	if out.String() != "no session\n" || errb.Len() != 0 {
 		t.Errorf("stdout %q, stderr %q", out.String(), errb.String())
+	}
+}
+
+func TestTermAuth_CancelledCtxStopsBlockedRead(t *testing.T) {
+	pr, pw := io.Pipe() // nothing is written, so a read blocks
+	defer pw.Close()
+	block := make(chan struct{})
+	defer close(block)
+	a := termAuth{
+		in:           bufio.NewReader(pr),
+		out:          io.Discard,
+		readPassword: func() (string, error) { <-block; return "", nil },
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	calls := map[string]func() (string, error){
+		"Phone":    func() (string, error) { return a.Phone(ctx) },
+		"Password": func() (string, error) { return a.Password(ctx) },
+	}
+	for name, call := range calls {
+		done := make(chan error, 1)
+		go func() { _, err := call(); done <- err }()
+		select {
+		case err := <-done:
+			if !errors.Is(err, context.Canceled) {
+				t.Errorf("%s error = %v, want context.Canceled", name, err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("%s did not return after ctx was cancelled", name)
+		}
+	}
+}
+
+func TestTermAuth_CancelDuringRead(t *testing.T) {
+	pr, pw := io.Pipe()
+	defer pw.Close()
+	a := termAuth{in: bufio.NewReader(pr), out: io.Discard}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { _, err := a.Phone(ctx); done <- err }()
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("Phone error = %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Phone did not return after cancel")
+	}
+}
+
+func TestLoginExit(t *testing.T) {
+	cases := []struct {
+		err      error
+		loggedIn bool
+		code     int
+		stderr   string
+	}{
+		{nil, true, 0, ""},
+		{nil, false, 1, "login interrupted\n"},
+		{errors.New("boom"), false, 1, "boom\n"},
+	}
+	for _, c := range cases {
+		var errb bytes.Buffer
+		if got := loginExit(c.err, c.loggedIn, &errb); got != c.code || errb.String() != c.stderr {
+			t.Errorf("loginExit(%v, %v) = %d, %q; want %d, %q", c.err, c.loggedIn, got, errb.String(), c.code, c.stderr)
+		}
 	}
 }
