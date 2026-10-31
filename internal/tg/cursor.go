@@ -15,6 +15,11 @@ type cursor struct {
 	ID       int      `json:"i"`
 	PeerType ChatType `json:"t"`
 	PeerID   int64    `json:"p"`
+	Folder   int      `json:"f"` // 0 main, 1 archive
+	// FromTop marks the "exclude pinned, no offset" cursor: the next page
+	// starts at the top of the unpinned dialogs. Date, ID, PeerType and
+	// PeerID are then zero.
+	FromTop bool `json:"x"`
 }
 
 func encodeCursor(c cursor) string {
@@ -34,6 +39,10 @@ func decodeCursor(s string) (cursor, error) {
 	switch c.PeerType {
 	case ChatPrivate, ChatGroup, ChatSupergroup, ChatChannel:
 		return c, nil
+	case "":
+		if c.FromTop {
+			return c, nil
+		}
 	}
 	return cursor{}, ErrInvalidCursor
 }

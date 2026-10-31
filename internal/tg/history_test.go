@@ -343,6 +343,9 @@ func TestResolvePeer_PagesUntilFound(t *testing.T) {
 		if req.Limit != 100 {
 			t.Errorf("Limit = %d, want 100", req.Limit)
 		}
+		if !req.GetExcludePinned() {
+			t.Error("ExcludePinned unset on a later scan page, want set")
+		}
 		if req.OffsetDate != 90000-99 || req.OffsetID != 5099 {
 			t.Errorf("OffsetDate/OffsetID = %d/%d, want %d/5099", req.OffsetDate, req.OffsetID, 90000-99)
 		}

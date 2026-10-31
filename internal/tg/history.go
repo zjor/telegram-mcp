@@ -106,16 +106,9 @@ func (s *Service) scanForPeer(ctx context.Context, t ChatType, id int64) (tgapi.
 			if peer, ok := s.peers.Get(t, id); ok {
 				return peer, nil
 			}
-			if page.complete || len(page.dialogs) == 0 {
+			c = nextCursor(folderID, page, NewNames(page.users, page.chats))
+			if c == nil {
 				break
-			}
-			last := page.dialogs[len(page.dialogs)-1]
-			chat := NewNames(page.users, page.chats).dialogChat(last.Peer)
-			c = &cursor{
-				Date:     topMessageDate(page.messages, last.TopMessage, last.Peer),
-				ID:       last.TopMessage,
-				PeerType: chat.Type,
-				PeerID:   chat.ID,
 			}
 		}
 	}

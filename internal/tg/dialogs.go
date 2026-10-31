@@ -26,6 +26,9 @@ func (s *Service) ListChats(ctx context.Context, p ListChatsParams) (*ListChatsR
 		if err != nil {
 			return nil, err
 		}
+		if dc.Folder != folderID {
+			return nil, ErrInvalidCursor
+		}
 		c = &dc
 	}
 
@@ -44,22 +47,49 @@ func (s *Service) ListChats(ctx context.Context, p ListChatsParams) (*ListChatsR
 
 	names := NewNames(page.users, page.chats)
 	result := &ListChatsResult{Chats: []Chat{}}
-	var last *cursor
 	for _, d := range page.dialogs {
 		chat := names.dialogChat(d.Peer)
-		date := topMessageDate(page.messages, d.TopMessage, d.Peer)
-		chat.LastMessageDate = int64(date)
+		chat.LastMessageDate = int64(topMessageDate(page.messages, d.TopMessage, d.Peer))
 		chat.UnreadCount = d.UnreadCount
 		chat.Folder = folder
 		result.Chats = append(result.Chats, chat)
-		last = &cursor{Date: date, ID: d.TopMessage, PeerType: chat.Type, PeerID: chat.ID}
 	}
 
-	if !page.complete && last != nil {
-		next := encodeCursor(*last)
+	if c := nextCursor(folderID, page, names); c != nil {
+		next := encodeCursor(*c)
 		result.NextCursor = &next
 	}
 	return result, nil
+}
+
+// nextCursor returns the cursor for the page after this one, or nil when the
+// page is the last one. The offset comes from the last dialog that is not
+// pinned and whose top message is in the response: pinned dialogs have
+// arbitrary dates, and a zero date would restart the listing. When no dialog
+// qualifies (a pinned-only page), it returns the FromTop cursor, which
+// restarts at the top of the unpinned dialogs.
+//
+// Every request with a cursor excludes pinned dialogs, so pinned dialogs
+// appear only on the first page. Known limitation: pinned dialogs beyond the
+// first page's limit are not listed. With the default limit 50 this cannot
+// happen, because Telegram allows far fewer pins.
+func nextCursor(folderID int, page dialogsPage, names *Names) *cursor {
+	if page.complete {
+		return nil
+	}
+	for i := len(page.dialogs) - 1; i >= 0; i-- {
+		d := page.dialogs[i]
+		if d.Pinned {
+			continue
+		}
+		date := topMessageDate(page.messages, d.TopMessage, d.Peer)
+		if date == 0 {
+			continue
+		}
+		chat := names.dialogChat(d.Peer)
+		return &cursor{Date: date, ID: d.TopMessage, PeerType: chat.Type, PeerID: chat.ID, Folder: folderID}
+	}
+	return &cursor{Folder: folderID, FromTop: true}
 }
 
 // dialogsPage is one messages.getDialogs response. dialogs holds only
@@ -76,12 +106,16 @@ type dialogsPage struct {
 }
 
 // fetchDialogs requests one page of dialogs in the folder (0 main, 1 archive)
-// starting after c (nil for the first page). The offset peer is taken from
-// the peer cache; it stays empty when the cache misses.
+// starting after c (nil for the first page). Requests with a cursor exclude
+// pinned dialogs. A FromTop cursor sends no offset. The offset peer is taken
+// from the peer cache; it stays empty when the cache misses.
 func (s *Service) fetchDialogs(ctx context.Context, folderID int, c *cursor, limit int) (dialogsPage, error) {
 	req := &tgapi.MessagesGetDialogsRequest{Limit: limit, OffsetPeer: &tgapi.InputPeerEmpty{}}
 	req.SetFolderID(folderID)
 	if c != nil {
+		req.SetExcludePinned(true)
+	}
+	if c != nil && !c.FromTop {
 		req.OffsetDate = c.Date
 		req.OffsetID = c.ID
 		if peer, ok := s.peers.Get(c.PeerType, c.PeerID); ok {

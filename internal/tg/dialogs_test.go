@@ -11,6 +11,11 @@ import (
 	"github.com/gotd/td/tgmock"
 )
 
+func pinned(d *tgapi.Dialog) *tgapi.Dialog {
+	d.Pinned = true
+	return d
+}
+
 func newTestService(t *testing.T) (*Service, *tgmock.Mock, string) {
 	t.Helper()
 	mock := tgmock.New(t)
@@ -314,5 +319,138 @@ func TestListChats_DefaultLimit(t *testing.T) {
 	}).ThenResult(&tgapi.MessagesDialogs{})
 	if _, err := s.ListChats(context.Background(), ListChatsParams{Folder: FolderMain, Limit: 0}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestListChats_CursorSkipsDialogWithoutTopMessage(t *testing.T) {
+	s, mock, _ := newTestService(t)
+	pc, pu := &tgapi.PeerChat{ChatID: 5}, &tgapi.PeerUser{UserID: 7}
+	mock.ExpectFunc(func(b bin.Encoder) { dialogsRequest(t, b) }).ThenResult(&tgapi.MessagesDialogsSlice{
+		Count:    10,
+		Dialogs:  []tgapi.DialogClass{dlg(pc, 20, 0), dlg(pu, 21, 0)},
+		Messages: []tgapi.MessageClass{msg(20, 500, pc)}, // top message 21 of the last dialog is missing
+		Chats:    []tgapi.ChatClass{&tgapi.Chat{ID: 5, Title: "Team", Photo: &tgapi.ChatPhotoEmpty{}}},
+		Users:    []tgapi.UserClass{&tgapi.User{ID: 7, AccessHash: 777, FirstName: "Ann"}},
+	})
+	res, err := s.ListChats(context.Background(), ListChatsParams{Folder: FolderMain, Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.NextCursor == nil {
+		t.Fatal("NextCursor is nil, want a cursor")
+	}
+	c, err := decodeCursor(*res.NextCursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (cursor{Date: 500, ID: 20, PeerType: ChatGroup, PeerID: 5}); c != want {
+		t.Fatalf("cursor = %+v, want %+v", c, want)
+	}
+}
+
+func TestListChats_CursorFolderMismatch(t *testing.T) {
+	s, _, _ := newTestService(t) // no expectations: any RPC fails the test
+	cur := encodeCursor(cursor{Date: 400, ID: 21, PeerType: ChatPrivate, PeerID: 7, Folder: 0})
+	_, err := s.ListChats(context.Background(), ListChatsParams{Folder: FolderArchive, Cursor: cur})
+	if !errors.Is(err, ErrInvalidCursor) {
+		t.Fatalf("err = %v, want ErrInvalidCursor", err)
+	}
+}
+
+func TestListChats_ExcludesPinnedOnLaterPages(t *testing.T) {
+	s, mock, _ := newTestService(t)
+	pc, pu := &tgapi.PeerChat{ChatID: 5}, &tgapi.PeerUser{UserID: 7}
+	mock.ExpectFunc(func(b bin.Encoder) {
+		if dialogsRequest(t, b).GetExcludePinned() {
+			t.Error("first request: ExcludePinned set, want unset")
+		}
+	}).ThenResult(&tgapi.MessagesDialogsSlice{
+		Count:    10,
+		Dialogs:  []tgapi.DialogClass{pinned(dlg(pc, 20, 0)), dlg(pu, 21, 0)},
+		Messages: []tgapi.MessageClass{msg(20, 900, pc), msg(21, 400, pu)},
+		Chats:    []tgapi.ChatClass{&tgapi.Chat{ID: 5, Title: "Team", Photo: &tgapi.ChatPhotoEmpty{}}},
+		Users:    []tgapi.UserClass{&tgapi.User{ID: 7, AccessHash: 777, FirstName: "Ann"}},
+	})
+	res, err := s.ListChats(context.Background(), ListChatsParams{Folder: FolderMain, Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.NextCursor == nil {
+		t.Fatal("NextCursor is nil, want a cursor")
+	}
+	mock.ExpectFunc(func(b bin.Encoder) {
+		if !dialogsRequest(t, b).GetExcludePinned() {
+			t.Error("second request: ExcludePinned unset, want set")
+		}
+	}).ThenResult(&tgapi.MessagesDialogsSlice{Count: 10})
+	if _, err := s.ListChats(context.Background(), ListChatsParams{Folder: FolderMain, Limit: 2, Cursor: *res.NextCursor}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestListChats_PinnedOnlyPageYieldsTopCursor(t *testing.T) {
+	s, mock, _ := newTestService(t)
+	pc, pu := &tgapi.PeerChat{ChatID: 5}, &tgapi.PeerUser{UserID: 7}
+	mock.ExpectFunc(func(b bin.Encoder) { dialogsRequest(t, b) }).ThenResult(&tgapi.MessagesDialogsSlice{
+		Count:    10,
+		Dialogs:  []tgapi.DialogClass{pinned(dlg(pc, 20, 0)), pinned(dlg(pu, 21, 0))},
+		Messages: []tgapi.MessageClass{msg(20, 100, pc), msg(21, 900, pu)},
+		Chats:    []tgapi.ChatClass{&tgapi.Chat{ID: 5, Title: "Team", Photo: &tgapi.ChatPhotoEmpty{}}},
+		Users:    []tgapi.UserClass{&tgapi.User{ID: 7, AccessHash: 777, FirstName: "Ann"}},
+	})
+	res, err := s.ListChats(context.Background(), ListChatsParams{Folder: FolderMain, Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.NextCursor == nil {
+		t.Fatal("NextCursor is nil, want the top cursor")
+	}
+	c, err := decodeCursor(*res.NextCursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (cursor{Folder: 0, FromTop: true}); c != want {
+		t.Fatalf("cursor = %+v, want %+v", c, want)
+	}
+
+	mock.ExpectFunc(func(b bin.Encoder) {
+		req := dialogsRequest(t, b)
+		if req.OffsetDate != 0 || req.OffsetID != 0 {
+			t.Errorf("OffsetDate/OffsetID = %d/%d, want 0/0", req.OffsetDate, req.OffsetID)
+		}
+		assertEmptyOffsetPeer(t, req)
+		if !req.GetExcludePinned() {
+			t.Error("ExcludePinned unset, want set")
+		}
+		assertFolderID(t, req, 0)
+	}).ThenResult(&tgapi.MessagesDialogsSlice{Count: 10})
+	if _, err := s.ListChats(context.Background(), ListChatsParams{Folder: FolderMain, Limit: 2, Cursor: *res.NextCursor}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestListChats_CursorFromLastUnpinned(t *testing.T) {
+	s, mock, _ := newTestService(t)
+	pc, pu := &tgapi.PeerChat{ChatID: 5}, &tgapi.PeerUser{UserID: 7}
+	mock.ExpectFunc(func(b bin.Encoder) { dialogsRequest(t, b) }).ThenResult(&tgapi.MessagesDialogsSlice{
+		Count:    10,
+		Dialogs:  []tgapi.DialogClass{dlg(pc, 20, 0), pinned(dlg(pu, 21, 0))},
+		Messages: []tgapi.MessageClass{msg(20, 500, pc), msg(21, 100, pu)},
+		Chats:    []tgapi.ChatClass{&tgapi.Chat{ID: 5, Title: "Team", Photo: &tgapi.ChatPhotoEmpty{}}},
+		Users:    []tgapi.UserClass{&tgapi.User{ID: 7, AccessHash: 777, FirstName: "Ann"}},
+	})
+	res, err := s.ListChats(context.Background(), ListChatsParams{Folder: FolderMain, Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.NextCursor == nil {
+		t.Fatal("NextCursor is nil, want a cursor")
+	}
+	c, err := decodeCursor(*res.NextCursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (cursor{Date: 500, ID: 20, PeerType: ChatGroup, PeerID: 5}); c != want {
+		t.Fatalf("cursor = %+v, want %+v", c, want)
 	}
 }
