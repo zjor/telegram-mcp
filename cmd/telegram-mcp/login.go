@@ -66,7 +66,31 @@ func (a termAuth) Phone(ctx context.Context) (string, error) {
 	return a.ask(ctx, "Phone number (international format): ", a.readLine)
 }
 
-func (a termAuth) Code(ctx context.Context, _ *tgapi.AuthSentCode) (string, error) {
+// codeHint says where Telegram delivered the login code.
+func codeHint(sc *tgapi.AuthSentCode) string {
+	if sc == nil {
+		return "Code sent."
+	}
+	switch sc.Type.(type) {
+	case *tgapi.AuthSentCodeTypeApp:
+		return "Code sent to your other Telegram app (check the \"Telegram\" service chat)."
+	case *tgapi.AuthSentCodeTypeSMS, *tgapi.AuthSentCodeTypeSMSWord, *tgapi.AuthSentCodeTypeSMSPhrase, *tgapi.AuthSentCodeTypeFirebaseSMS:
+		return "Code sent by SMS."
+	case *tgapi.AuthSentCodeTypeCall:
+		return "Code will be dictated by a phone call."
+	case *tgapi.AuthSentCodeTypeFlashCall, *tgapi.AuthSentCodeTypeMissedCall:
+		return "Code is the last digits of the number that calls you."
+	case *tgapi.AuthSentCodeTypeEmailCode:
+		return "Code sent to your login email."
+	case *tgapi.AuthSentCodeTypeFragmentSMS:
+		return "Code sent via Fragment SMS."
+	default:
+		return "Code sent."
+	}
+}
+
+func (a termAuth) Code(ctx context.Context, sc *tgapi.AuthSentCode) (string, error) {
+	fmt.Fprintln(a.out, codeHint(sc))
 	return a.ask(ctx, "Code: ", a.readLine)
 }
 

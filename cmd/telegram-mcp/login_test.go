@@ -131,3 +131,21 @@ func TestLoginExit(t *testing.T) {
 		}
 	}
 }
+
+func TestCodeHint(t *testing.T) {
+	cases := []struct {
+		sc   *tgapi.AuthSentCode
+		want string
+	}{
+		{nil, "Code sent."},
+		{&tgapi.AuthSentCode{}, "Code sent."},
+		{&tgapi.AuthSentCode{Type: &tgapi.AuthSentCodeTypeApp{}}, "Code sent to your other Telegram app (check the \"Telegram\" service chat)."},
+		{&tgapi.AuthSentCode{Type: &tgapi.AuthSentCodeTypeSMS{}}, "Code sent by SMS."},
+		{&tgapi.AuthSentCode{Type: &tgapi.AuthSentCodeTypeCall{}}, "Code will be dictated by a phone call."},
+	}
+	for _, c := range cases {
+		if got := codeHint(c.sc); got != c.want {
+			t.Errorf("codeHint(%v) = %q; want %q", c.sc, got, c.want)
+		}
+	}
+}
