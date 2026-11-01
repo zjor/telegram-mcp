@@ -51,6 +51,7 @@ func (s *Service) ListChats(ctx context.Context, p ListChatsParams) (*ListChatsR
 		chat := names.dialogChat(d.Peer)
 		chat.LastMessageDate = int64(topMessageDate(page.messages, d.TopMessage, d.Peer))
 		chat.UnreadCount = d.UnreadCount
+		chat.Pinned = d.Pinned
 		chat.Folder = folder
 		result.Chats = append(result.Chats, chat)
 	}
@@ -150,10 +151,21 @@ func (s *Service) fetchDialogs(ctx context.Context, folderID int, c *cursor, lim
 	default: // *tgapi.MessagesDialogsNotModified
 		return dialogsPage{complete: true, notModified: true}, nil
 	}
+	// Telegram adds every pinned dialog to the first page and rounds small
+	// limits up, so cap the unpinned dialogs here and keep all pinned ones.
+	unpinned := 0
 	for _, dc := range raw {
-		if d, ok := dc.(*tgapi.Dialog); ok {
-			page.dialogs = append(page.dialogs, d)
+		d, ok := dc.(*tgapi.Dialog)
+		if !ok {
+			continue
 		}
+		if !d.Pinned {
+			if unpinned == limit {
+				continue
+			}
+			unpinned++
+		}
+		page.dialogs = append(page.dialogs, d)
 	}
 	return page, nil
 }

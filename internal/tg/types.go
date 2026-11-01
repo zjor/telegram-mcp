@@ -28,6 +28,7 @@ type Chat struct {
 	Username        string   `json:"username,omitempty"`
 	LastMessageDate int64    `json:"last_message_date"`
 	UnreadCount     int      `json:"unread_count"`
+	Pinned          bool     `json:"pinned,omitempty"`
 	Folder          Folder   `json:"folder"`
 }
 

@@ -75,7 +75,7 @@ All tools are read-only. Each result is JSON.
 
 ### `list_chats`
 
-List chats, newest activity first. Telegram's order is kept: pinned chats come first.
+List chats, newest activity first. Telegram's order is kept: pinned chats come first. `limit` counts unpinned chats; the first page also returns every pinned chat on top of that, each marked `"pinned": true`.
 
 Input:
 
@@ -87,7 +87,7 @@ Input:
 
 Output: `{ "chats": [...], "next_cursor": string|null }`. `next_cursor` is `null` on the last page.
 
-Pinned chats appear only on the first page. Later pages skip them. Limitation: if you have more pinned chats than the first page's `limit`, the extra pinned chats are not listed. With the default limit 50 this cannot happen, because Telegram allows far fewer pins.
+Pinned chats appear only on the first page. Later pages skip them.
 
 Each chat:
 
@@ -99,6 +99,7 @@ Each chat:
 | `username` | Without `@`. Only present if the peer has one. |
 | `last_message_date` | Unix seconds |
 | `unread_count` | int |
+| `pinned` | `true` for pinned chats. Omitted otherwise. |
 | `folder` | `main` or `archive` |
 
 ### `read_chat`

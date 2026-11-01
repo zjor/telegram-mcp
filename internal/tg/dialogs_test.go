@@ -489,3 +489,49 @@ func TestListChats_LaterPageWithoutUsableDialogEndsPaging(t *testing.T) {
 		t.Fatalf("later page: NextCursor = %+v, want nil", c)
 	}
 }
+
+// Telegram adds every pinned dialog to the first page and rounds small limits
+// up, so the service must cap unpinned dialogs itself and keep all pinned ones.
+func TestListChats_CapsUnpinnedToLimitKeepsPinned(t *testing.T) {
+	s, mock, _ := newTestService(t)
+	peers := []*tgapi.PeerUser{{UserID: 1}, {UserID: 2}, {UserID: 3}, {UserID: 4}, {UserID: 5}, {UserID: 6}}
+	var dialogs []tgapi.DialogClass
+	var messages []tgapi.MessageClass
+	var users []tgapi.UserClass
+	for i, p := range peers {
+		d := dlg(p, 10+i, 0)
+		if i < 2 {
+			d = pinned(d)
+		}
+		dialogs = append(dialogs, d)
+		messages = append(messages, msg(10+i, 1000-i, p))
+		users = append(users, &tgapi.User{ID: p.UserID, AccessHash: 7, FirstName: "U"})
+	}
+	mock.ExpectFunc(func(b bin.Encoder) { dialogsRequest(t, b) }).ThenResult(&tgapi.MessagesDialogsSlice{
+		Count: 100, Dialogs: dialogs, Messages: messages, Users: users,
+	})
+	res, err := s.ListChats(context.Background(), ListChatsParams{Folder: FolderMain, Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gotIDs []int64
+	for _, c := range res.Chats {
+		gotIDs = append(gotIDs, c.ID)
+	}
+	if len(gotIDs) != 4 || gotIDs[0] != 1 || gotIDs[1] != 2 || gotIDs[2] != 3 || gotIDs[3] != 4 {
+		t.Fatalf("chat ids = %v, want [1 2 3 4] (2 pinned + limit 2 unpinned)", gotIDs)
+	}
+	if !res.Chats[0].Pinned || !res.Chats[1].Pinned || res.Chats[2].Pinned {
+		t.Errorf("pinned flags = %v %v %v, want true true false", res.Chats[0].Pinned, res.Chats[1].Pinned, res.Chats[2].Pinned)
+	}
+	if res.NextCursor == nil {
+		t.Fatal("NextCursor is nil, want a cursor")
+	}
+	c, err := decodeCursor(*res.NextCursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (cursor{Date: 997, ID: 13, PeerType: ChatPrivate, PeerID: 4}); c != want {
+		t.Fatalf("cursor = %+v, want %+v", c, want)
+	}
+}
