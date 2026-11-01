@@ -4,6 +4,7 @@ package mcpserver
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -17,6 +18,7 @@ const Version = "0.1.0"
 type Telegram interface {
 	ListChats(ctx context.Context, p tg.ListChatsParams) (*tg.ListChatsResult, error)
 	ReadChat(ctx context.Context, p tg.ReadChatParams) (*tg.ReadChatResult, error)
+	SendMessage(ctx context.Context, p tg.SendMessageParams) (*tg.SendMessageResult, error)
 }
 
 type ListChatsInput struct {
@@ -33,12 +35,20 @@ type ReadChatInput struct {
 	SinceDate int64  `json:"since_date,omitempty" jsonschema:"unix seconds; return nothing older"`
 }
 
+type SendMessageInput struct {
+	ChatID   int64  `json:"chat_id"            jsonschema:"id from list_chats"`
+	ChatType string `json:"chat_type"          jsonschema:"private, group, supergroup or channel"`
+	Text     string `json:"text"               jsonschema:"message text in Markdown"`
+	ReplyTo  int    `json:"reply_to,omitempty" jsonschema:"id of the message to reply to"`
+}
+
 const (
-	listChatsDescription = "List the user's Telegram chats (private chats, groups, supergroups, channels), newest activity first. Use the returned cursor to fetch the next page. Pass folder=archive to list archived chats."
-	readChatDescription  = "Read plain-text message history of one chat, newest first. Pass before_id=next_before_id from the previous call to page backwards; stop when next_before_id is null."
+	sendMessageDescription = "Send a text message to one chat as the logged-in user. Text is Markdown: **bold**, *italic*, ~~strikethrough~~, ||spoiler||, `code`, ```fenced code```, [link](url), > quote. Unmatched markers are sent as plain text. Pass reply_to to reply to a message id from read_chat."
+	listChatsDescription   = "List the user's Telegram chats (private chats, groups, supergroups, channels), newest activity first. Use the returned cursor to fetch the next page. Pass folder=archive to list archived chats."
+	readChatDescription    = "Read plain-text message history of one chat, newest first. Pass before_id=next_before_id from the previous call to page backwards; stop when next_before_id is null."
 )
 
-// New builds an MCP server with the list_chats and read_chat tools.
+// New builds an MCP server with the list_chats, read_chat and send_message tools.
 func New(t Telegram) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "telegram-mcp", Version: Version}, nil)
 
@@ -54,7 +64,37 @@ func New(t Telegram) *mcp.Server {
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, readChatHandler(t))
 
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "send_message",
+		Description: sendMessageDescription,
+	}, sendMessageHandler(t))
+
 	return s
+}
+
+func sendMessageHandler(t Telegram) mcp.ToolHandlerFor[SendMessageInput, *tg.SendMessageResult] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in SendMessageInput) (*mcp.CallToolResult, *tg.SendMessageResult, error) {
+		if in.ChatID == 0 {
+			return nil, nil, errors.New("chat_id is required")
+		}
+		chatType, err := parseChatType(in.ChatType)
+		if err != nil {
+			return nil, nil, err
+		}
+		if strings.TrimSpace(in.Text) == "" {
+			return nil, nil, errors.New("text is required")
+		}
+		res, err := t.SendMessage(ctx, tg.SendMessageParams{
+			ChatID:   in.ChatID,
+			ChatType: chatType,
+			Text:     in.Text,
+			ReplyTo:  in.ReplyTo,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, res, nil
+	}
 }
 
 func listChatsHandler(t Telegram) mcp.ToolHandlerFor[ListChatsInput, *tg.ListChatsResult] {

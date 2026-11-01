@@ -23,6 +23,20 @@ type fakeTelegram struct {
 	readParams tg.ReadChatParams
 	readResult *tg.ReadChatResult
 	readErr    error
+
+	sendCalled bool
+	sendParams tg.SendMessageParams
+	sendResult *tg.SendMessageResult
+	sendErr    error
+}
+
+func (f *fakeTelegram) SendMessage(_ context.Context, p tg.SendMessageParams) (*tg.SendMessageResult, error) {
+	f.sendCalled = true
+	f.sendParams = p
+	if f.sendErr != nil {
+		return nil, f.sendErr
+	}
+	return f.sendResult, nil
 }
 
 func (f *fakeTelegram) ListChats(_ context.Context, p tg.ListChatsParams) (*tg.ListChatsResult, error) {
@@ -102,12 +116,10 @@ func TestListTools(t *testing.T) {
 	}
 	got := map[string]bool{}
 	for _, tool := range res.Tools {
-		if tool.Annotations == nil || !tool.Annotations.ReadOnlyHint {
-			t.Errorf("tool %s: readOnlyHint not true", tool.Name)
-		}
-		got[tool.Name] = true
+		readOnly := tool.Annotations != nil && tool.Annotations.ReadOnlyHint
+		got[tool.Name] = readOnly
 	}
-	want := map[string]bool{"list_chats": true, "read_chat": true}
+	want := map[string]bool{"list_chats": true, "read_chat": true, "send_message": false}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("tools = %v, want %v", got, want)
 	}
@@ -237,4 +249,49 @@ func TestReadChat_NullNextBeforeID(t *testing.T) {
 	if txt := resultText(t, res); !strings.Contains(txt, `"next_before_id":null`) {
 		t.Fatalf("text %q does not contain next_before_id null", txt)
 	}
+}
+
+func TestSendMessage_Passthrough(t *testing.T) {
+	fake := &fakeTelegram{sendResult: &tg.SendMessageResult{ID: 42, Date: 500}}
+	cs := newSession(t, fake)
+
+	res := callTool(t, cs, "send_message", map[string]any{"chat_id": 7, "chat_type": "private", "text": "hi **there**", "reply_to": 10})
+	if res.IsError {
+		t.Fatalf("IsError = true: %s", resultText(t, res))
+	}
+	want := tg.SendMessageParams{ChatID: 7, ChatType: tg.ChatPrivate, Text: "hi **there**", ReplyTo: 10}
+	if fake.sendParams != want {
+		t.Fatalf("params = %+v, want %+v", fake.sendParams, want)
+	}
+	var got tg.SendMessageResult
+	if err := json.Unmarshal([]byte(resultText(t, res)), &got); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+	if got != *fake.sendResult {
+		t.Fatalf("result = %+v, want %+v", got, *fake.sendResult)
+	}
+}
+
+func TestSendMessage_Validation(t *testing.T) {
+	fake := &fakeTelegram{}
+	cs := newSession(t, fake)
+
+	res := callTool(t, cs, "send_message", map[string]any{"chat_id": 0, "chat_type": "private", "text": "hi"})
+	expectToolError(t, res, "chat_id is required")
+
+	res = callTool(t, cs, "send_message", map[string]any{"chat_id": 7, "chat_type": "private", "text": "   "})
+	expectToolError(t, res, "text is required")
+
+	res = callTool(t, cs, "send_message", map[string]any{"chat_id": 7, "chat_type": "dm", "text": "hi"})
+	expectToolError(t, res, "chat_type")
+
+	if fake.sendCalled {
+		t.Fatal("SendMessage was called despite invalid input")
+	}
+}
+
+func TestSendMessage_BackendError(t *testing.T) {
+	cs := newSession(t, &fakeTelegram{sendErr: errors.New("boom")})
+	res := callTool(t, cs, "send_message", map[string]any{"chat_id": 7, "chat_type": "private", "text": "hi"})
+	expectToolError(t, res, "boom")
 }
