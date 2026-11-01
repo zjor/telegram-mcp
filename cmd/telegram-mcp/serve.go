@@ -80,7 +80,7 @@ func runServe(args []string, stderr io.Writer) int {
 }
 
 func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
-	client := newClient(cfg, logger)
+	client := newClient(cfg, logger, nil)
 	return client.Run(ctx, func(ctx context.Context) error {
 		status, err := client.Auth().Status(ctx)
 		if err != nil {
@@ -101,13 +101,14 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 }
 
 // newClient builds the gotd client shared by serve, login and logout.
-func newClient(cfg config.Config, logger *slog.Logger) *telegram.Client {
+func newClient(cfg config.Config, logger *slog.Logger, updates telegram.UpdateHandler) *telegram.Client {
 	return tg.NewClient(tg.ClientConfig{
 		APIID:       cfg.APIID,
 		APIHash:     cfg.APIHash,
 		SessionPath: cfg.SessionPath,
 		Logger:      logger,
 		Debug:       cfg.Debug,
+		Updates:     updates,
 	})
 }
 

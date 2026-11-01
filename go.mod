@@ -6,6 +6,7 @@ require (
 	github.com/gotd/contrib v0.25.0
 	github.com/gotd/log v0.1.0
 	github.com/gotd/td v0.163.0
+	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	golang.org/x/term v0.45.0
 )

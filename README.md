@@ -29,7 +29,15 @@ go build -o telegram-mcp ./cmd/telegram-mcp
 TELEGRAM_API_ID=… TELEGRAM_API_HASH=… ./telegram-mcp login
 ```
 
-The command asks for `Phone number (international format):`, then `Code:`, and `2FA password:` if your account has one. On success it prints `Logged in as <name>` and saves the session.
+The command prints a QR code. Scan it in the Telegram app on a logged-in device: Settings → Devices → Link Desktop Device. The QR refreshes itself when it expires. If your account has a cloud password, the command then asks for `2FA password:`. On success it prints `Logged in as <name>` and saves the session.
+
+If you cannot scan, use the phone-and-code flow instead:
+
+```bash
+TELEGRAM_API_ID=… TELEGRAM_API_HASH=… ./telegram-mcp login --code
+```
+
+It asks for `Phone number (international format):`, then `Code:`, and `2FA password:` if needed. Telegram delivers the code to your other Telegram sessions, not by SMS. Telegram sometimes does not deliver codes requested through a new `api_id` at all; the QR flow does not have this problem.
 
 ## Claude Code setup
 
@@ -162,7 +170,7 @@ This ends the session on Telegram and deletes `session.json` and `peers.json`. I
 
 Run these checks yourself after the first setup.
 
-- [ ] `TELEGRAM_API_ID=… TELEGRAM_API_HASH=… ./telegram-mcp login` prints `Logged in as <name>`. `ls -l ~/.config/telegram-mcp/session.json` shows `-rw-------`.
+- [ ] `TELEGRAM_API_ID=… TELEGRAM_API_HASH=… ./telegram-mcp login` shows a QR code, and after scanning prints `Logged in as <name>`. Running `login` again prints `Logged in as <name>` at once without a QR. `ls -l ~/.config/telegram-mcp/session.json` shows `-rw-------`.
 - [ ] Register the server with `claude mcp add telegram -e TELEGRAM_API_ID=… -e TELEGRAM_API_HASH=… -- /absolute/path/to/telegram-mcp serve`. In Claude Code, call `list_chats`: your chats appear. Call `list_chats` with `folder=archive`: archived chats appear.
 - [ ] Call `read_chat` for one private chat. Call it again with `before_id` set to `next_before_id`. The messages continue further back in time.
 - [ ] On an account with pinned chats, call `list_chats` with `limit=2`. Page with `cursor` until `next_cursor` is `null`. Compare the list with the Telegram app: every chat appears once, none is missing.

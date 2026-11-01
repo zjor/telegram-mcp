@@ -11,7 +11,9 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/telegram/auth"
+	"github.com/gotd/td/telegram/auth/qrlogin"
 	tgapi "github.com/gotd/td/tg"
 	"golang.org/x/term"
 
@@ -120,7 +122,12 @@ func loadConfig() (config.Config, error) {
 	return config.Load(os.Getenv, home)
 }
 
-func runLogin(stdout, stderr io.Writer) int {
+func runLogin(args []string, stdout, stderr io.Writer) int {
+	useCode, err := loginMode(args)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
 	cfg, err := loadConfig()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -134,11 +141,35 @@ func runLogin(stdout, stderr io.Writer) int {
 		defer term.Restore(int(os.Stdin.Fd()), st)
 	}
 
-	client := newClient(cfg, newLogger(stderr, cfg.Debug))
-	loggedIn := false
 	ta := termAuth{in: bufio.NewReader(os.Stdin), out: stdout, readPassword: stdinPassword(stdout)}
+	logger := newLogger(stderr, cfg.Debug)
+
+	// QR login receives the "scanned" signal as an update, so that client gets a dispatcher.
+	var client *telegram.Client
+	var scanned qrlogin.LoggedIn
+	if useCode {
+		client = newClient(cfg, logger, nil)
+	} else {
+		dispatcher := tgapi.NewUpdateDispatcher()
+		scanned = qrlogin.OnLoginToken(dispatcher)
+		client = newClient(cfg, logger, dispatcher)
+	}
+
+	loggedIn := false
 	err = client.Run(ctx, func(ctx context.Context) error {
-		if err := client.Auth().IfNecessary(ctx, auth.NewFlow(ta, auth.SendCodeOptions{})); err != nil {
+		status, err := client.Auth().Status(ctx)
+		if err != nil {
+			return err
+		}
+		switch {
+		case status.Authorized:
+			// already logged in; just report who
+		case useCode:
+			err = client.Auth().IfNecessary(ctx, auth.NewFlow(ta, auth.SendCodeOptions{}))
+		default:
+			err = loginQR(ctx, client, stdout, ta, scanned)
+		}
+		if err != nil {
 			return err
 		}
 		self, err := client.Self(ctx)
@@ -179,7 +210,7 @@ func runLogout(stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	client := newClient(cfg, newLogger(stderr, cfg.Debug))
+	client := newClient(cfg, newLogger(stderr, cfg.Debug), nil)
 	err = client.Run(ctx, func(ctx context.Context) error {
 		_, err := client.API().AuthLogOut(ctx)
 		return err

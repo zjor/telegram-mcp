@@ -21,8 +21,9 @@ type ClientConfig struct {
 	APIID       int
 	APIHash     string
 	SessionPath string
-	Logger      *slog.Logger // our own diagnostics
-	Debug       bool         // also log every RPC and gotd's own events through Logger
+	Logger      *slog.Logger           // our own diagnostics
+	Debug       bool                   // also log every RPC and gotd's own events through Logger
+	Updates     telegram.UpdateHandler // when set, updates are delivered to it (needed for QR login)
 }
 
 // NewClient builds a gotd client with a file session, flood-wait handling and
@@ -37,7 +38,8 @@ func NewClient(cfg ClientConfig) *telegram.Client {
 		Middlewares: []telegram.Middleware{
 			floodwait.NewSimpleWaiter().WithMaxWait(60 * time.Second),
 		},
-		NoUpdates: true,
+		NoUpdates:     cfg.Updates == nil,
+		UpdateHandler: cfg.Updates,
 	}
 	if cfg.Debug && cfg.Logger != nil {
 		opts.Middlewares = append(opts.Middlewares, RPCLogger(cfg.Logger))

@@ -9,7 +9,8 @@ import (
 const usage = `usage: telegram-mcp <command>
 
 commands:
-  login    sign in to Telegram and save the session
+  login    sign in to Telegram by scanning a QR code and save the session
+           --code   use a phone number and a login code instead
   serve    run the MCP server on stdio
   logout   delete the saved session
 
@@ -32,7 +33,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "serve":
 		return runServe(args[1:], stderr)
 	case "login":
-		return runLogin(stdout, stderr)
+		return runLogin(args[1:], stdout, stderr)
 	case "logout":
 		return runLogout(stdout, stderr)
 	default:
