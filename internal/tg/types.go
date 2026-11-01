@@ -62,3 +62,15 @@ type ReadChatResult struct {
 	Messages     []Message `json:"messages"`
 	NextBeforeID *int      `json:"next_before_id"`
 }
+
+type SendMessageParams struct {
+	ChatID   int64
+	ChatType ChatType
+	Text     string // Markdown
+	ReplyTo  int    // message id to reply to; 0 for none
+}
+
+type SendMessageResult struct {
+	ID   int   `json:"id"`
+	Date int64 `json:"date"`
+}

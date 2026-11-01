@@ -1,7 +1,7 @@
 | `TELEGRAM_MCP_DEBUG` | no | Set to `1` to log every Telegram call (method, duration, result or error) and gotd connection events to stderr. Payloads are not logged. |
 # telegram-mcp
 
-A read-only MCP server for Telegram. It runs as your own user account over MTProto, not as a bot. It has two tools: `list_chats` and `read_chat`. It cannot send, edit or delete anything.
+An MCP server for Telegram. It runs as your own user account over MTProto, not as a bot. It has three tools: `list_chats`, `read_chat` and `send_message`. It cannot edit or delete anything.
 
 ## Requirements
 
@@ -133,6 +133,38 @@ Placeholders for media: `[photo]`, `[video]`, `[voice]`, `[audio]`, `[video_note
 
 If the chat is not in the local peer cache, the server scans your dialogs (main and archive, at most 20 pages per folder) to find it. If it still cannot find it, it returns an error that tells you to call `list_chats`.
 
+### `send_message`
+
+Send a text message to one chat as yourself. The message looks the same as one typed in the Telegram app.
+
+Input:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `chat_id` | int64, required | `id` from `list_chats`. `0` fails with `chat_id is required`. |
+| `chat_type` | string, required | `type` from `list_chats` |
+| `text` | string, required | Message text in Markdown (see below). Blank text fails with `text is required`. |
+| `reply_to` | int, optional | `id` of a message from `read_chat` to reply to. |
+
+Output: `{ "id": int, "date": int }`, the id and Unix time of the sent message.
+
+Markdown is CommonMark, parsed leniently: an unmatched marker is sent as plain text, never as an error.
+
+| Syntax | Result |
+| --- | --- |
+| `**bold**` or `__bold__` | bold |
+| `*italic*` or `_italic_` | italic |
+| `~~text~~` | strikethrough |
+| `\|\|text\|\|` | spoiler |
+| `` `code` `` | inline code |
+| ```` ```lang ```` fenced block | code block, with optional language |
+| `[text](url)` | link |
+| `> text` | block quote |
+
+Underline has no Markdown syntax and is not supported.
+
+The chat must be one of your own dialogs. An id that is not in your chat list fails with the same `list_chats` error as `read_chat`, so a message cannot go to an unknown chat.
+
 ### Paging example
 
 1. Call `read_chat` with `chat_id` and `chat_type`.
@@ -155,7 +187,7 @@ Telegram flood waits of up to 60 s are waited out inside the server. Longer ones
 | `session.json` | Your Telegram session. Treat it like a password. |
 | `peers.json` | Cache of chat access data. It is in the same folder as the session file. |
 
-Both files have mode 0600. `peers.json` is created on the first successful `list_chats` or `read_chat`.
+Both files have mode 0600. `peers.json` is created on the first successful `list_chats`, `read_chat` or `send_message`.
 
 Run only one server instance at a time. The files are not locked.
 
@@ -177,6 +209,11 @@ Run these checks yourself after the first setup.
 - [ ] On an account with pinned chats, call `list_chats` with `limit=2`. Page with `cursor` until `next_cursor` is `null`. Compare the list with the Telegram app: every chat appears once, none is missing.
 - [ ] Call `read_chat` on a supergroup and on a channel. Page each at least 3 times with `before_id`, until `next_before_id` is `null`.
 - [ ] Restart `serve`. Call `read_chat` on an archived chat without calling `list_chats` first. It works because the peer cache is persisted.
+- [ ] Call `send_message` to your Saved Messages chat with this `text`. The message arrives with the formatting shown. Call it again with `reply_to` set to that message's `id`: the reply quotes the first message.
+
+  ```
+  hello **bold** _italic_ ~~strike~~ ||spoiler|| `code` [link](https://example.com)
+  ```
 - [ ] `ls -l ~/.config/telegram-mcp/peers.json` shows `-rw-------`.
 - [ ] `TELEGRAM_API_ID=1 TELEGRAM_API_HASH=x TELEGRAM_SESSION_PATH=/tmp/none.json ./telegram-mcp serve` exits with code 3 and prints the `run "telegram-mcp login" first` hint.
 - [ ] `./telegram-mcp logout` prints `Logged out` and removes both `session.json` and `peers.json`.
