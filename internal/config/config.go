@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 // Config holds the settings needed to talk to Telegram.
@@ -13,6 +14,7 @@ type Config struct {
 	APIID       int
 	APIHash     string
 	SessionPath string // absolute file path
+	Debug       bool   // TELEGRAM_MCP_DEBUG: log every Telegram call to stderr
 }
 
 // PeersPath returns the peer cache path, next to the session file.
@@ -45,5 +47,14 @@ func Load(getenv func(string) string, homeDir string) (Config, error) {
 		}
 		session = abs
 	}
-	return Config{APIID: id, APIHash: hash, SessionPath: session}, nil
+	return Config{APIID: id, APIHash: hash, SessionPath: session, Debug: debugEnabled(getenv("TELEGRAM_MCP_DEBUG"))}, nil
+}
+
+// debugEnabled treats any value except "", "0" and "false" as on.
+func debugEnabled(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "", "0", "false":
+		return false
+	}
+	return true
 }

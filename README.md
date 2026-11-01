@@ -1,3 +1,4 @@
+| `TELEGRAM_MCP_DEBUG` | no | Set to `1` to log every Telegram call (method, duration, result or error) and gotd connection events to stderr. Payloads are not logged. |
 # telegram-mcp
 
 A read-only MCP server for Telegram. It runs as your own user account over MTProto, not as a bot. It has two tools: `list_chats` and `read_chat`. It cannot send, edit or delete anything.
@@ -20,6 +21,7 @@ go build -o telegram-mcp ./cmd/telegram-mcp
 | `TELEGRAM_API_ID` | yes | Telegram API id (a number) |
 | `TELEGRAM_API_HASH` | yes | Telegram API hash |
 | `TELEGRAM_SESSION_PATH` | no | Session file. Default `~/.config/telegram-mcp/session.json` |
+| `TELEGRAM_MCP_DEBUG` | no | Set to `1` to log every Telegram call (method, duration, result or error) and gotd connection events to stderr. Payloads are not logged. |
 
 ## Log in (once)
 

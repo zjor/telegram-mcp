@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
@@ -135,7 +134,7 @@ func runLogin(stdout, stderr io.Writer) int {
 		defer term.Restore(int(os.Stdin.Fd()), st)
 	}
 
-	client := newClient(cfg, slog.New(slog.NewTextHandler(stderr, nil)))
+	client := newClient(cfg, newLogger(stderr, cfg.Debug))
 	loggedIn := false
 	ta := termAuth{in: bufio.NewReader(os.Stdin), out: stdout, readPassword: stdinPassword(stdout)}
 	err = client.Run(ctx, func(ctx context.Context) error {
@@ -180,7 +179,7 @@ func runLogout(stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	client := newClient(cfg, slog.New(slog.NewTextHandler(stderr, nil)))
+	client := newClient(cfg, newLogger(stderr, cfg.Debug))
 	err = client.Run(ctx, func(ctx context.Context) error {
 		_, err := client.API().AuthLogOut(ctx)
 		return err

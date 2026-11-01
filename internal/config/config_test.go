@@ -72,3 +72,16 @@ func TestLoad_Errors(t *testing.T) {
 		})
 	}
 }
+
+func TestLoad_Debug(t *testing.T) {
+	for v, want := range map[string]bool{"": false, "0": false, "false": false, "1": true, "true": true, "yes": true} {
+		env := map[string]string{"TELEGRAM_API_ID": "1", "TELEGRAM_API_HASH": "h", "TELEGRAM_MCP_DEBUG": v}
+		cfg, err := config.Load(func(k string) string { return env[k] }, "/home/u")
+		if err != nil {
+			t.Fatalf("TELEGRAM_MCP_DEBUG=%q: %v", v, err)
+		}
+		if cfg.Debug != want {
+			t.Errorf("TELEGRAM_MCP_DEBUG=%q: Debug = %v; want %v", v, cfg.Debug, want)
+		}
+	}
+}

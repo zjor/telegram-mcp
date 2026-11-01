@@ -71,7 +71,7 @@ func runServe(args []string, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	logger := slog.New(slog.NewTextHandler(stderr, nil))
+	logger := newLogger(stderr, cfg.Debug)
 	if err := serve(ctx, cfg, logger); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -107,5 +107,15 @@ func newClient(cfg config.Config, logger *slog.Logger) *telegram.Client {
 		APIHash:     cfg.APIHash,
 		SessionPath: cfg.SessionPath,
 		Logger:      logger,
+		Debug:       cfg.Debug,
 	})
+}
+
+// newLogger writes to stderr; TELEGRAM_MCP_DEBUG lowers the level to debug.
+func newLogger(stderr io.Writer, debug bool) *slog.Logger {
+	level := slog.LevelInfo
+	if debug {
+		level = slog.LevelDebug
+	}
+	return slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: level}))
 }
