@@ -11,7 +11,7 @@ import (
 	"github.com/gotd/td/telegram/auth"
 	"github.com/gotd/td/telegram/auth/qrlogin"
 	"github.com/gotd/td/tgerr"
-	"github.com/mdp/qrterminal/v3"
+	"github.com/mdp/qrterminal/v4"
 )
 
 // errInvalidPassword is gotd's wrong-2FA-password error.
