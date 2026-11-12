@@ -168,6 +168,9 @@ Work hours: Telegram gives intervals as minutes from Monday 00:00 in the
 user's timezone (week = 0..10080). Each interval becomes one string
 `"<Day> HH:MM-HH:MM"`. An interval that crosses midnight is written with
 the start day and an end time past midnight, e.g. `"Fri 22:00-02:00"`.
+An interval longer than one day names the end day too, e.g.
+`"Mon 00:00-Sat 00:00"` (Telegram merges adjacent intervals, so "open
+24h Mon–Fri" arrives as one interval).
 
 ## Lookup flow
 

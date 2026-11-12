@@ -150,3 +150,22 @@ func TestNewUserInfo_BotDescription(t *testing.T) {
 		t.Fatalf("got bot %v desc %q", got.Bot, got.BotDescription)
 	}
 }
+
+func TestOpenInterval_MultiDay(t *testing.T) {
+	tests := []struct {
+		start, end int
+		want       string
+	}{
+		{540, 1080, "Mon 09:00-18:00"},
+		{4*1440 + 1320, 5*1440 + 120, "Fri 22:00-02:00"},
+		{0, 1440, "Mon 00:00-00:00"},
+		{0, 5 * 1440, "Mon 00:00-Sat 00:00"},
+		{0, 7 * 1440, "Mon 00:00-Mon 00:00"},
+		{6 * 1440, 8 * 1440, "Sun 00:00-Tue 00:00"},
+	}
+	for _, tt := range tests {
+		if got := openInterval(tt.start, tt.end); got != tt.want {
+			t.Errorf("openInterval(%d, %d) = %q, want %q", tt.start, tt.end, got, tt.want)
+		}
+	}
+}

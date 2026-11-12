@@ -122,10 +122,15 @@ func business(f *tgapi.UserFull) *Business {
 var weekdays = [7]string{"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}
 
 // openInterval formats minutes from Monday 00:00 as "Mon 09:00-18:00".
-// The start day names the interval; the end may be past midnight.
+// An interval up to one day names only the start day; the end may be past
+// midnight. A longer interval names the end day too: "Mon 00:00-Sat 00:00".
 func openInterval(start, end int) string {
 	const day = 24 * 60
-	return fmt.Sprintf("%s %s-%s", weekdays[(start/day)%7], clock(start%day), clock(end%day))
+	from := weekdays[(start/day)%7] + " " + clock(start%day)
+	if end-start <= day {
+		return from + "-" + clock(end%day)
+	}
+	return from + "-" + weekdays[(end/day)%7] + " " + clock(end%day)
 }
 
 func clock(m int) string {
