@@ -112,9 +112,15 @@ func sendMessageHandler(t Telegram) mcp.ToolHandlerFor[SendMessageInput, *tg.Sen
 
 func getUserHandler(t Telegram) mcp.ToolHandlerFor[GetUserInput, *tg.UserInfo] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in GetUserInput) (*mcp.CallToolResult, *tg.UserInfo, error) {
-		username := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(in.Username), "@"))
-		if (in.UserID != 0) == (in.Username != "") || (in.Username != "" && username == "") {
+		if (in.UserID != 0) == (in.Username != "") {
 			return nil, nil, errors.New("pass exactly one of user_id or username")
+		}
+		if in.UserID < 0 {
+			return nil, nil, errors.New("user_id must be positive")
+		}
+		username := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(in.Username), "@"))
+		if in.Username != "" && username == "" {
+			return nil, nil, errors.New("username is empty")
 		}
 		res, err := t.GetUser(ctx, tg.GetUserParams{UserID: in.UserID, Username: username})
 		if err != nil {

@@ -227,3 +227,14 @@ Flood waits are handled by the existing middleware.
 
 - Helper names and file split inside `internal/tg`.
 - Exact wording of the tool description, within the meaning above.
+
+## Follow-up fixes (2026-11-12)
+
+- Blank `username` (`"@"`, spaces) → `"username is empty"`.
+  Negative `user_id` → `"user_id must be positive"`.
+- `user_id` that misses the private-chat cache but is a cached group or
+  channel id → `"user_id belongs to a group or channel; pass the chat_id of
+  a private chat"`, without a dialog scan.
+- `users.getFullUser` failing with `USER_ID_INVALID` / `PEER_ID_INVALID`
+  on a `user_id` lookup → the cached entry is dropped, dialogs are scanned
+  again, and the call is retried once.
