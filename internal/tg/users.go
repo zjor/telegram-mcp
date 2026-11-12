@@ -14,6 +14,7 @@ var (
 	ErrUnknownUser      = errors.New("unknown user; pass a chat_id of a private chat from list_chats, or a username")
 	ErrUsernameNotFound = errors.New("username not found")
 	ErrNotAUser         = errors.New("username belongs to a group or channel, not a user")
+	ErrNotAUserID       = errors.New("user_id belongs to a group or channel; pass the chat_id of a private chat")
 )
 
 // GetUser returns the profile details Telegram shows for one user. Exactly
@@ -33,6 +34,15 @@ func (s *Service) GetUser(ctx context.Context, p GetUserParams) (*UserInfo, erro
 	}
 
 	full, err := s.api.UsersGetFullUser(ctx, in)
+	if p.Username == "" && tgerr.Is(err, "USER_ID_INVALID", "PEER_ID_INVALID") {
+		// The cached access hash is stale. Drop it, find the user in the
+		// dialogs again and retry once.
+		s.peers.Delete(ChatPrivate, p.UserID)
+		if in, err = s.inputUserByID(ctx, p.UserID); err != nil {
+			return nil, err
+		}
+		full, err = s.api.UsersGetFullUser(ctx, in)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("users.getFullUser: %w", err)
 	}
@@ -48,6 +58,14 @@ func (s *Service) GetUser(ctx context.Context, p GetUserParams) (*UserInfo, erro
 }
 
 func (s *Service) inputUserByID(ctx context.Context, id int64) (*tgapi.InputUser, error) {
+	if _, ok := s.peers.Get(ChatPrivate, id); !ok {
+		// A known group or channel id is not a user: skip the dialog scan.
+		_, isGroup := s.peers.Get(ChatGroup, id)
+		_, isChannel := s.peers.Get(ChatChannel, id)
+		if isGroup || isChannel {
+			return nil, ErrNotAUserID
+		}
+	}
 	peer, err := s.resolvePeer(ctx, ChatPrivate, id)
 	if errors.Is(err, ErrUnknownChat) {
 		return nil, ErrUnknownUser

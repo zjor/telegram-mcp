@@ -147,3 +147,73 @@ func TestGetUser_FullUserMissingFromUsers(t *testing.T) {
 		t.Fatal("err = nil, want error")
 	}
 }
+
+func TestGetUser_StaleHashRescansDialogs(t *testing.T) {
+	s, mock, _ := newTestService(t)
+	s.peers.Put(ChatPrivate, 7, 1) // stale hash
+	mock.ExpectFunc(expectGetFullUser(t, 7, 1)).
+		ThenRPCErr(&tgerr.Error{Code: 400, Message: "USER_ID_INVALID", Type: "USER_ID_INVALID"})
+	mock.ExpectFunc(func(b bin.Encoder) { dialogsRequest(t, b) }).ThenResult(&tgapi.MessagesDialogs{
+		Dialogs: []tgapi.DialogClass{&tgapi.Dialog{Peer: &tgapi.PeerUser{UserID: 7}}},
+		Users:   []tgapi.UserClass{&tgapi.User{ID: 7, AccessHash: 9}},
+	})
+	mock.ExpectFunc(expectGetFullUser(t, 7, 9)).ThenResult(fullUserResult(
+		&tgapi.User{ID: 7, AccessHash: 9, FirstName: "Ann"}, tgapi.UserFull{ID: 7}))
+
+	res, err := s.GetUser(context.Background(), GetUserParams{UserID: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.FirstName != "Ann" {
+		t.Fatalf("res = %+v", res)
+	}
+	if !mock.AllWereMet() {
+		t.Fatal("not all expected calls were made")
+	}
+}
+
+func TestGetUser_StaleHashUserGone(t *testing.T) {
+	s, mock, _ := newTestService(t)
+	s.peers.Put(ChatPrivate, 7, 1)
+	mock.ExpectFunc(expectGetFullUser(t, 7, 1)).
+		ThenRPCErr(&tgerr.Error{Code: 400, Message: "PEER_ID_INVALID", Type: "PEER_ID_INVALID"})
+	mock.ExpectFunc(func(b bin.Encoder) { dialogsRequest(t, b) }).ThenResult(&tgapi.MessagesDialogs{})
+	mock.ExpectFunc(func(b bin.Encoder) { dialogsRequest(t, b) }).ThenResult(&tgapi.MessagesDialogs{})
+
+	_, err := s.GetUser(context.Background(), GetUserParams{UserID: 7})
+	if !errors.Is(err, ErrUnknownUser) {
+		t.Fatalf("err = %v, want ErrUnknownUser", err)
+	}
+}
+
+func TestGetUser_StaleHashRetriesOnce(t *testing.T) {
+	s, mock, _ := newTestService(t)
+	s.peers.Put(ChatPrivate, 7, 1)
+	invalid := &tgerr.Error{Code: 400, Message: "USER_ID_INVALID", Type: "USER_ID_INVALID"}
+	mock.ExpectFunc(expectGetFullUser(t, 7, 1)).ThenRPCErr(invalid)
+	mock.ExpectFunc(func(b bin.Encoder) { dialogsRequest(t, b) }).ThenResult(&tgapi.MessagesDialogs{
+		Dialogs: []tgapi.DialogClass{&tgapi.Dialog{Peer: &tgapi.PeerUser{UserID: 7}}},
+		Users:   []tgapi.UserClass{&tgapi.User{ID: 7, AccessHash: 9}},
+	})
+	mock.ExpectFunc(expectGetFullUser(t, 7, 9)).ThenRPCErr(invalid)
+
+	_, err := s.GetUser(context.Background(), GetUserParams{UserID: 7})
+	if !tgerr.Is(err, "USER_ID_INVALID") {
+		t.Fatalf("err = %v, want USER_ID_INVALID", err)
+	}
+	if !mock.AllWereMet() {
+		t.Fatal("not all expected calls were made")
+	}
+}
+
+func TestGetUser_GroupIDNoScan(t *testing.T) {
+	for _, ct := range []ChatType{ChatGroup, ChatSupergroup} {
+		s, _, _ := newTestService(t)
+		s.peers.Put(ct, 5, 3)
+		// No mock expectations: any API call fails the test.
+		_, err := s.GetUser(context.Background(), GetUserParams{UserID: 5})
+		if !errors.Is(err, ErrNotAUserID) {
+			t.Fatalf("%s: err = %v, want ErrNotAUserID", ct, err)
+		}
+	}
+}

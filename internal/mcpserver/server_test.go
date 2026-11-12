@@ -345,17 +345,23 @@ func TestGetUser_UsernameStripped(t *testing.T) {
 }
 
 func TestGetUser_Validation(t *testing.T) {
-	for _, args := range []map[string]any{
-		{},
-		{"user_id": 7, "username": "ann"},
-		{"username": "@"},
-		{"username": "   "},
-	} {
+	tests := []struct {
+		args map[string]any
+		want string
+	}{
+		{map[string]any{}, "pass exactly one of user_id or username"},
+		{map[string]any{"user_id": 7, "username": "ann"}, "pass exactly one of user_id or username"},
+		{map[string]any{"username": "@"}, "username is empty"},
+		{map[string]any{"username": "   "}, "username is empty"},
+		{map[string]any{"username": " @ "}, "username is empty"},
+		{map[string]any{"user_id": -5}, "user_id must be positive"},
+	}
+	for _, tt := range tests {
 		fake := &fakeTelegram{}
 		cs := newSession(t, fake)
-		expectToolError(t, callTool(t, cs, "get_user", args), "pass exactly one of user_id or username")
+		expectToolError(t, callTool(t, cs, "get_user", tt.args), tt.want)
 		if fake.getUserCalled {
-			t.Fatalf("%v: backend called", args)
+			t.Fatalf("%v: backend called", tt.args)
 		}
 	}
 }

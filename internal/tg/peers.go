@@ -102,6 +102,13 @@ func (c *PeerCache) Put(t ChatType, id int64, accessHash int64) {
 	c.mu.Unlock()
 }
 
+// Delete removes one entry, so the next lookup misses the cache.
+func (c *PeerCache) Delete(t ChatType, id int64) {
+	c.mu.Lock()
+	delete(c.entries, peerKey(t, id))
+	c.mu.Unlock()
+}
+
 func (c *PeerCache) Get(t ChatType, id int64) (tgapi.InputPeerClass, bool) {
 	c.mu.Lock()
 	e, ok := c.entries[peerKey(t, id)]
