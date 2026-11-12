@@ -1,7 +1,9 @@
 | `TELEGRAM_MCP_DEBUG` | no | Set to `1` to log every Telegram call (method, duration, result or error) and gotd connection events to stderr. Payloads are not logged. |
 # telegram-mcp
 
-An MCP server for Telegram. It runs as your own user account over MTProto, not as a bot. It has three tools: `list_chats`, `read_chat` and `send_message`. It cannot edit or delete anything.
+An MCP server for Telegram. It runs as your own user account over MTProto, not as a bot. It has four tools: `list_chats`, `read_chat`, `send_message` and `get_user`. It cannot edit or delete anything.
+
+`get_user` returns the profile details of one user, found by `user_id` or `username`. Phone number and birthday appear only when Telegram shows them to you.
 
 ## Requirements
 

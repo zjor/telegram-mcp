@@ -28,6 +28,20 @@ type fakeTelegram struct {
 	sendParams tg.SendMessageParams
 	sendResult *tg.SendMessageResult
 	sendErr    error
+
+	getUserCalled bool
+	getUserParams tg.GetUserParams
+	getUserResult *tg.UserInfo
+	getUserErr    error
+}
+
+func (f *fakeTelegram) GetUser(_ context.Context, p tg.GetUserParams) (*tg.UserInfo, error) {
+	f.getUserCalled = true
+	f.getUserParams = p
+	if f.getUserErr != nil {
+		return nil, f.getUserErr
+	}
+	return f.getUserResult, nil
 }
 
 func (f *fakeTelegram) SendMessage(_ context.Context, p tg.SendMessageParams) (*tg.SendMessageResult, error) {
@@ -119,7 +133,7 @@ func TestListTools(t *testing.T) {
 		readOnly := tool.Annotations != nil && tool.Annotations.ReadOnlyHint
 		got[tool.Name] = readOnly
 	}
-	want := map[string]bool{"list_chats": true, "read_chat": true, "send_message": false}
+	want := map[string]bool{"list_chats": true, "read_chat": true, "send_message": false, "get_user": true}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("tools = %v, want %v", got, want)
 	}
@@ -294,4 +308,60 @@ func TestSendMessage_BackendError(t *testing.T) {
 	cs := newSession(t, &fakeTelegram{sendErr: errors.New("boom")})
 	res := callTool(t, cs, "send_message", map[string]any{"chat_id": 7, "chat_type": "private", "text": "hi"})
 	expectToolError(t, res, "boom")
+}
+
+func TestGetUser_ByID(t *testing.T) {
+	fake := &fakeTelegram{getUserResult: &tg.UserInfo{ID: 7, FirstName: "Ann", Status: "online"}}
+	cs := newSession(t, fake)
+
+	res := callTool(t, cs, "get_user", map[string]any{"user_id": 7})
+	if res.IsError {
+		t.Fatalf("IsError = true: %s", resultText(t, res))
+	}
+	if fake.getUserParams != (tg.GetUserParams{UserID: 7}) {
+		t.Fatalf("params = %+v, want UserID 7", fake.getUserParams)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(resultText(t, res)), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got["id"] != float64(7) || got["first_name"] != "Ann" {
+		t.Fatalf("result = %v", got)
+	}
+}
+
+func TestGetUser_UsernameStripped(t *testing.T) {
+	for in, want := range map[string]string{"@ann": "ann", "  ann  ": "ann", " @Ann ": "Ann"} {
+		fake := &fakeTelegram{getUserResult: &tg.UserInfo{ID: 7}}
+		cs := newSession(t, fake)
+		res := callTool(t, cs, "get_user", map[string]any{"username": in})
+		if res.IsError {
+			t.Fatalf("%q: IsError = true: %s", in, resultText(t, res))
+		}
+		if fake.getUserParams != (tg.GetUserParams{Username: want}) {
+			t.Fatalf("%q: params = %+v, want Username %q", in, fake.getUserParams, want)
+		}
+	}
+}
+
+func TestGetUser_Validation(t *testing.T) {
+	for _, args := range []map[string]any{
+		{},
+		{"user_id": 7, "username": "ann"},
+		{"username": "@"},
+		{"username": "   "},
+	} {
+		fake := &fakeTelegram{}
+		cs := newSession(t, fake)
+		expectToolError(t, callTool(t, cs, "get_user", args), "pass exactly one of user_id or username")
+		if fake.getUserCalled {
+			t.Fatalf("%v: backend called", args)
+		}
+	}
+}
+
+func TestGetUser_BackendError(t *testing.T) {
+	fake := &fakeTelegram{getUserErr: tg.ErrUsernameNotFound}
+	cs := newSession(t, fake)
+	expectToolError(t, callTool(t, cs, "get_user", map[string]any{"username": "nobody"}), "username not found")
 }

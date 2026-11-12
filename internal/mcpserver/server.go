@@ -19,6 +19,7 @@ type Telegram interface {
 	ListChats(ctx context.Context, p tg.ListChatsParams) (*tg.ListChatsResult, error)
 	ReadChat(ctx context.Context, p tg.ReadChatParams) (*tg.ReadChatResult, error)
 	SendMessage(ctx context.Context, p tg.SendMessageParams) (*tg.SendMessageResult, error)
+	GetUser(ctx context.Context, p tg.GetUserParams) (*tg.UserInfo, error)
 }
 
 type ListChatsInput struct {
@@ -42,13 +43,19 @@ type SendMessageInput struct {
 	ReplyTo  int    `json:"reply_to,omitempty" jsonschema:"id of the message to reply to"`
 }
 
+type GetUserInput struct {
+	UserID   int64  `json:"user_id,omitempty"  jsonschema:"chat_id of a private chat from list_chats"`
+	Username string `json:"username,omitempty" jsonschema:"Telegram username, with or without @"`
+}
+
 const (
+	getUserDescription     = "Get all profile details Telegram shows for one user: name, username, phone, bio, birthday, status, relation to you, account flags, business info. Pass user_id (chat_id of a private chat from list_chats) or username. Fields Telegram hides are omitted."
 	sendMessageDescription = "Send a text message to one chat as the logged-in user. Text is Markdown: **bold**, *italic*, ~~strikethrough~~, ||spoiler||, `code`, ```fenced code```, [link](url), > quote. Unmatched markers are sent as plain text. Pass reply_to to reply to a message id from read_chat."
 	listChatsDescription   = "List the user's Telegram chats (private chats, groups, supergroups, channels), newest activity first. Use the returned cursor to fetch the next page. Pass folder=archive to list archived chats."
 	readChatDescription    = "Read plain-text message history of one chat, newest first. Pass before_id=next_before_id from the previous call to page backwards; stop when next_before_id is null."
 )
 
-// New builds an MCP server with the list_chats, read_chat and send_message tools.
+// New builds an MCP server with the list_chats, read_chat, send_message and get_user tools.
 func New(t Telegram) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "telegram-mcp", Version: Version}, nil)
 
@@ -68,6 +75,12 @@ func New(t Telegram) *mcp.Server {
 		Name:        "send_message",
 		Description: sendMessageDescription,
 	}, sendMessageHandler(t))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "get_user",
+		Description: getUserDescription,
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+	}, getUserHandler(t))
 
 	return s
 }
@@ -90,6 +103,20 @@ func sendMessageHandler(t Telegram) mcp.ToolHandlerFor[SendMessageInput, *tg.Sen
 			Text:     in.Text,
 			ReplyTo:  in.ReplyTo,
 		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, res, nil
+	}
+}
+
+func getUserHandler(t Telegram) mcp.ToolHandlerFor[GetUserInput, *tg.UserInfo] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in GetUserInput) (*mcp.CallToolResult, *tg.UserInfo, error) {
+		username := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(in.Username), "@"))
+		if (in.UserID != 0) == (in.Username != "") || (in.Username != "" && username == "") {
+			return nil, nil, errors.New("pass exactly one of user_id or username")
+		}
+		res, err := t.GetUser(ctx, tg.GetUserParams{UserID: in.UserID, Username: username})
 		if err != nil {
 			return nil, nil, err
 		}
