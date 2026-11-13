@@ -16,6 +16,12 @@ func pinned(d *tgapi.Dialog) *tgapi.Dialog {
 	return d
 }
 
+// archived marks a dialog as living in the archive folder, as Telegram does.
+func archived(d *tgapi.Dialog) *tgapi.Dialog {
+	d.SetFolderID(1)
+	return d
+}
+
 func newTestService(t *testing.T) (*Service, *tgmock.Mock, string) {
 	t.Helper()
 	mock := tgmock.New(t)
@@ -105,7 +111,7 @@ func TestListChats_ArchiveFolder(t *testing.T) {
 	mock.ExpectFunc(func(b bin.Encoder) {
 		assertFolderID(t, dialogsRequest(t, b), 1)
 	}).ThenResult(&tgapi.MessagesDialogs{
-		Dialogs:  []tgapi.DialogClass{dlg(pu, 1, 0)},
+		Dialogs:  []tgapi.DialogClass{archived(dlg(pu, 1, 0))},
 		Messages: []tgapi.MessageClass{msg(1, 10, pu)},
 		Users:    []tgapi.UserClass{&tgapi.User{ID: 7, FirstName: "Ann"}},
 	})
@@ -533,5 +539,61 @@ func TestListChats_CapsUnpinnedToLimitKeepsPinned(t *testing.T) {
 	}
 	if want := (cursor{Date: 997, ID: 13, PeerType: ChatPrivate, PeerID: 4}); c != want {
 		t.Fatalf("cursor = %+v, want %+v", c, want)
+	}
+}
+
+// Telegram adds the main folder's pinned dialogs to the first archive page.
+// They carry no folder_id and must not be listed as archived.
+func TestListChats_ArchiveDropsMainPinned(t *testing.T) {
+	s, mock, _ := newTestService(t)
+	main1, main2 := &tgapi.PeerUser{UserID: 1}, &tgapi.PeerChat{ChatID: 2}
+	a1, a2 := &tgapi.PeerUser{UserID: 7}, &tgapi.PeerUser{UserID: 8}
+	mock.ExpectFunc(func(b bin.Encoder) { assertFolderID(t, dialogsRequest(t, b), 1) }).ThenResult(&tgapi.MessagesDialogsSlice{
+		Count:    50,
+		Dialogs:  []tgapi.DialogClass{pinned(dlg(main1, 1, 0)), pinned(dlg(main2, 2, 0)), archived(dlg(a1, 30, 0)), archived(dlg(a2, 20, 0))},
+		Messages: []tgapi.MessageClass{msg(1, 900, main1), msg(2, 800, main2), msg(30, 300, a1), msg(20, 200, a2)},
+		Users:    []tgapi.UserClass{&tgapi.User{ID: 1, AccessHash: 10, FirstName: "Me"}, &tgapi.User{ID: 7, AccessHash: 70, FirstName: "Ann"}, &tgapi.User{ID: 8, AccessHash: 80, FirstName: "Bob"}},
+		Chats:    []tgapi.ChatClass{&tgapi.Chat{ID: 2, Title: "Brains", Photo: &tgapi.ChatPhotoEmpty{}}},
+	})
+	res, err := s.ListChats(context.Background(), ListChatsParams{Folder: FolderArchive, Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Chats) != 2 || res.Chats[0].ID != 7 || res.Chats[1].ID != 8 {
+		t.Fatalf("chats = %+v, want only archived 7 and 8", res.Chats)
+	}
+	for _, c := range res.Chats {
+		if c.Folder != FolderArchive || c.Pinned {
+			t.Errorf("chat %+v: want folder archive, not pinned", c)
+		}
+	}
+	// The cursor still comes from the last archived dialog.
+	if res.NextCursor == nil {
+		t.Fatal("NextCursor = nil, want set")
+	}
+	c, err := decodeCursor(*res.NextCursor)
+	if err != nil || c.PeerID != 8 || c.ID != 20 || c.Date != 200 || c.Folder != 1 {
+		t.Fatalf("cursor = %+v, %v", c, err)
+	}
+	// Dropped dialogs' peers are still cached.
+	if _, ok := s.peers.Get(ChatPrivate, 1); !ok {
+		t.Error("user 1 from a dropped dialog is not in the peer cache")
+	}
+}
+
+func TestListChats_MainDropsArchivedPinned(t *testing.T) {
+	s, mock, _ := newTestService(t)
+	pa, pm := &tgapi.PeerUser{UserID: 7}, &tgapi.PeerUser{UserID: 8}
+	mock.ExpectFunc(func(b bin.Encoder) { assertFolderID(t, dialogsRequest(t, b), 0) }).ThenResult(&tgapi.MessagesDialogs{
+		Dialogs:  []tgapi.DialogClass{pinned(archived(dlg(pa, 1, 0))), dlg(pm, 2, 0)},
+		Messages: []tgapi.MessageClass{msg(1, 100, pa), msg(2, 200, pm)},
+		Users:    []tgapi.UserClass{&tgapi.User{ID: 7, FirstName: "Ann"}, &tgapi.User{ID: 8, FirstName: "Bob"}},
+	})
+	res, err := s.ListChats(context.Background(), ListChatsParams{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Chats) != 1 || res.Chats[0].ID != 8 || res.Chats[0].Folder != FolderMain {
+		t.Fatalf("chats = %+v, want only main chat 8", res.Chats)
 	}
 }

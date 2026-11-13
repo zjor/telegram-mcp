@@ -152,3 +152,46 @@ type WorkHours struct {
 	Timezone string   `json:"timezone"` // e.g. "Europe/Berlin"
 	Open     []string `json:"open"`     // e.g. "Mon 09:00-18:00"
 }
+
+type ParticipantSource string
+
+const (
+	SourceMembers       ParticipantSource = "members"
+	SourceRecentSenders ParticipantSource = "recent_senders"
+)
+
+type ParticipantFilter string
+
+const (
+	FilterAll    ParticipantFilter = "all"
+	FilterAdmins ParticipantFilter = "admins"
+	FilterBots   ParticipantFilter = "bots"
+)
+
+type ListParticipantsParams struct {
+	ChatID   int64
+	ChatType ChatType // group or supergroup
+	Query    string
+	Filter   ParticipantFilter
+	Limit    int
+	Cursor   string
+}
+
+type Participant struct {
+	ID              int64  `json:"id"`
+	FirstName       string `json:"first_name"`
+	LastName        string `json:"last_name,omitempty"`
+	Username        string `json:"username,omitempty"`
+	Bot             bool   `json:"bot,omitempty"`
+	Deleted         bool   `json:"deleted,omitempty"`
+	Role            string `json:"role,omitempty"`              // creator | admin | member; members source only
+	JoinedAt        int64  `json:"joined_at,omitempty"`         // unix seconds; members source only, when known
+	LastMessageDate int64  `json:"last_message_date,omitempty"` // unix seconds; recent_senders only
+}
+
+type ListParticipantsResult struct {
+	Source       ParticipantSource `json:"source"`
+	Participants []Participant     `json:"participants"`
+	Total        *int              `json:"total"`       // member count Telegram reports; null for recent_senders
+	NextCursor   *string           `json:"next_cursor"` // null on the last page
+}
