@@ -153,10 +153,17 @@ func (s *Service) fetchDialogs(ctx context.Context, folderID int, c *cursor, lim
 	}
 	// Telegram adds every pinned dialog to the first page and rounds small
 	// limits up, so cap the unpinned dialogs here and keep all pinned ones.
+	// It also adds the main folder's pinned dialogs to the first archive
+	// page; each dialog carries its real folder, so drop the ones that do
+	// not belong to the requested folder. Their peers are still cached by
+	// the caller from users and chats.
 	unpinned := 0
 	for _, dc := range raw {
 		d, ok := dc.(*tgapi.Dialog)
 		if !ok {
+			continue
+		}
+		if f, _ := d.GetFolderID(); f != folderID {
 			continue
 		}
 		if !d.Pinned {
