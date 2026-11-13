@@ -21,6 +21,13 @@ type Telegram interface {
 	SendMessage(ctx context.Context, p tg.SendMessageParams) (*tg.SendMessageResult, error)
 	GetUser(ctx context.Context, p tg.GetUserParams) (*tg.UserInfo, error)
 	ListParticipants(ctx context.Context, p tg.ListParticipantsParams) (*tg.ListParticipantsResult, error)
+	DownloadMedia(ctx context.Context, p tg.DownloadMediaParams) (*tg.DownloadMediaResult, error)
+}
+
+type DownloadMediaInput struct {
+	ChatID    int64  `json:"chat_id"    jsonschema:"id from list_chats"`
+	ChatType  string `json:"chat_type"  jsonschema:"private, group, supergroup or channel"`
+	MessageID int    `json:"message_id" jsonschema:"message id from read_chat"`
 }
 
 type ListChatsInput struct {
@@ -59,7 +66,8 @@ type GetUserInput struct {
 }
 
 const (
-	getUserDescription          = "Get all profile details Telegram shows for one user: name, username, phone, bio, birthday, status, relation to you, account flags, business info. Pass user_id (chat_id of a private chat from list_chats) or username. Fields Telegram hides are omitted."
+	downloadMediaDescription    = "Download the attachment of one message (voice, audio, video, photo, document, sticker) to a local file and return its path. Pass chat_id and chat_type from list_chats and message_id from read_chat. The file content is not returned."
+	getUserDescription         = "Get all profile details Telegram shows for one user: name, username, phone, bio, birthday, status, relation to you, account flags, business info. Pass user_id (chat_id of a private chat from list_chats) or username. Fields Telegram hides are omitted."
 	sendMessageDescription      = "Send a text message to one chat as the logged-in user. Text is Markdown: **bold**, *italic*, ~~strikethrough~~, ||spoiler||, `code`, ```fenced code```, [link](url), > quote. Unmatched markers are sent as plain text. Pass reply_to to reply to a message id from read_chat."
 	listChatsDescription        = "List the user's Telegram chats (private chats, groups, supergroups, channels), newest activity first. Use the returned cursor to fetch the next page. Pass folder=archive to list archived chats."
 	listParticipantsDescription = "List members of a group or supergroup. Pass chat_id and chat_type from list_chats. If the group hides its member list, returns recent message senders instead and sets source=recent_senders; that list is partial. Senders may repeat across pages; deduplicate by id. Use the returned cursor for the next page. Use get_user for full profiles."
@@ -67,7 +75,7 @@ const (
 )
 
 // New builds an MCP server with the list_chats, read_chat, send_message,
-// get_user and list_participants tools.
+// get_user, list_participants and download_media tools.
 func New(t Telegram) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "telegram-mcp", Version: Version}, nil)
 
@@ -100,7 +108,33 @@ func New(t Telegram) *mcp.Server {
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, listParticipantsHandler(t))
 
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "download_media",
+		Description: downloadMediaDescription,
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+	}, downloadMediaHandler(t))
+
 	return s
+}
+
+func downloadMediaHandler(t Telegram) mcp.ToolHandlerFor[DownloadMediaInput, *tg.DownloadMediaResult] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in DownloadMediaInput) (*mcp.CallToolResult, *tg.DownloadMediaResult, error) {
+		if in.ChatID == 0 {
+			return nil, nil, errors.New("chat_id is required")
+		}
+		chatType, err := parseChatType(in.ChatType)
+		if err != nil {
+			return nil, nil, err
+		}
+		if in.MessageID <= 0 {
+			return nil, nil, errors.New("message_id must be positive")
+		}
+		res, err := t.DownloadMedia(ctx, tg.DownloadMediaParams{ChatID: in.ChatID, ChatType: chatType, MessageID: in.MessageID})
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, res, nil
+	}
 }
 
 func sendMessageHandler(t Telegram) mcp.ToolHandlerFor[SendMessageInput, *tg.SendMessageResult] {

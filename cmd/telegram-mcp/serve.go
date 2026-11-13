@@ -96,6 +96,7 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		}
 		// *telegram.Client implements tgapi.Invoker; client.API() does not.
 		svc := tg.NewService(client, peers)
+		svc.SetDownloads(cfg.DownloadDir, cfg.MaxDownloadBytes)
 		return mcpserver.New(svc).Run(ctx, &mcp.StdioTransport{})
 	})
 }

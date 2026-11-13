@@ -38,6 +38,20 @@ type fakeTelegram struct {
 	partsParams tg.ListParticipantsParams
 	partsResult *tg.ListParticipantsResult
 	partsErr    error
+
+	downloadCalled bool
+	downloadParams tg.DownloadMediaParams
+	downloadResult *tg.DownloadMediaResult
+	downloadErr    error
+}
+
+func (f *fakeTelegram) DownloadMedia(_ context.Context, p tg.DownloadMediaParams) (*tg.DownloadMediaResult, error) {
+	f.downloadCalled = true
+	f.downloadParams = p
+	if f.downloadErr != nil {
+		return nil, f.downloadErr
+	}
+	return f.downloadResult, nil
 }
 
 func (f *fakeTelegram) ListParticipants(_ context.Context, p tg.ListParticipantsParams) (*tg.ListParticipantsResult, error) {
@@ -147,7 +161,7 @@ func TestListTools(t *testing.T) {
 		readOnly := tool.Annotations != nil && tool.Annotations.ReadOnlyHint
 		got[tool.Name] = readOnly
 	}
-	want := map[string]bool{"list_chats": true, "read_chat": true, "send_message": false, "get_user": true, "list_participants": true}
+	want := map[string]bool{"list_chats": true, "read_chat": true, "send_message": false, "get_user": true, "list_participants": true, "download_media": true}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("tools = %v, want %v", got, want)
 	}
@@ -321,6 +335,53 @@ func TestSendMessage_Validation(t *testing.T) {
 func TestSendMessage_BackendError(t *testing.T) {
 	cs := newSession(t, &fakeTelegram{sendErr: errors.New("boom")})
 	res := callTool(t, cs, "send_message", map[string]any{"chat_id": 7, "chat_type": "private", "text": "hi"})
+	expectToolError(t, res, "boom")
+}
+
+func TestDownloadMedia_PassesParams(t *testing.T) {
+	fake := &fakeTelegram{downloadResult: &tg.DownloadMediaResult{Path: "/d/7_10.ogg", Kind: "voice", MimeType: "audio/ogg", Size: 3, Duration: 7}}
+	cs := newSession(t, fake)
+
+	res := callTool(t, cs, "download_media", map[string]any{"chat_id": 7, "chat_type": "private", "message_id": 10})
+	if res.IsError {
+		t.Fatalf("IsError = true: %s", resultText(t, res))
+	}
+	want := tg.DownloadMediaParams{ChatID: 7, ChatType: tg.ChatPrivate, MessageID: 10}
+	if fake.downloadParams != want {
+		t.Fatalf("params = %+v, want %+v", fake.downloadParams, want)
+	}
+	var got tg.DownloadMediaResult
+	if err := json.Unmarshal([]byte(resultText(t, res)), &got); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+	if got != *fake.downloadResult {
+		t.Fatalf("result = %+v, want %+v", got, *fake.downloadResult)
+	}
+}
+
+func TestDownloadMedia_Validation(t *testing.T) {
+	fake := &fakeTelegram{}
+	cs := newSession(t, fake)
+
+	res := callTool(t, cs, "download_media", map[string]any{"chat_id": 0, "chat_type": "private", "message_id": 10})
+	expectToolError(t, res, "chat_id is required")
+
+	res = callTool(t, cs, "download_media", map[string]any{"chat_id": 7, "chat_type": "dm", "message_id": 10})
+	expectToolError(t, res, "chat_type")
+
+	for _, id := range []int{0, -1} {
+		res = callTool(t, cs, "download_media", map[string]any{"chat_id": 7, "chat_type": "private", "message_id": id})
+		expectToolError(t, res, "message_id must be positive")
+	}
+
+	if fake.downloadCalled {
+		t.Fatal("DownloadMedia was called despite invalid input")
+	}
+}
+
+func TestDownloadMedia_BackendError(t *testing.T) {
+	cs := newSession(t, &fakeTelegram{downloadErr: errors.New("boom")})
+	res := callTool(t, cs, "download_media", map[string]any{"chat_id": 7, "chat_type": "private", "message_id": 10})
 	expectToolError(t, res, "boom")
 }
 

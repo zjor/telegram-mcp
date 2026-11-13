@@ -111,49 +111,11 @@ func documentPlaceholder(md *tgapi.MessageMediaDocument) string {
 	if !ok {
 		return "[document]"
 	}
-	var (
-		sticker, voice, audio, videoNote, video, animated bool
-		filename                                          string
-	)
-	for _, a := range doc.Attributes {
-		switch a := a.(type) {
-		case *tgapi.DocumentAttributeSticker:
-			sticker = true
-		case *tgapi.DocumentAttributeAudio:
-			if a.Voice {
-				voice = true
-			} else {
-				audio = true
-			}
-		case *tgapi.DocumentAttributeVideo:
-			if a.RoundMessage {
-				videoNote = true
-			} else {
-				video = true
-			}
-		case *tgapi.DocumentAttributeAnimated:
-			animated = true
-		case *tgapi.DocumentAttributeFilename:
-			filename = a.FileName
-		}
-	}
-	switch {
-	case sticker:
-		return "[sticker]"
-	case voice:
-		return "[voice]"
-	case audio:
-		return "[audio]"
-	case videoNote:
-		return "[video_note]"
-	case video:
-		return "[video]"
-	case animated:
-		return "[gif]"
-	case filename != "":
+	kind, filename, _ := documentKind(doc)
+	if kind == "document" && filename != "" {
 		return "[document " + filename + "]"
 	}
-	return "[document]"
+	return "[" + kind + "]"
 }
 
 func RenderService(m *tgapi.MessageService) string {

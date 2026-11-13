@@ -75,6 +75,21 @@ type SendMessageResult struct {
 	Date int64 `json:"date"`
 }
 
+type DownloadMediaParams struct {
+	ChatID    int64
+	ChatType  ChatType
+	MessageID int
+}
+
+type DownloadMediaResult struct {
+	Path     string `json:"path"`                // absolute
+	Kind     string `json:"kind"`                // voice, audio, video, video_note, photo, document, sticker, gif
+	MimeType string `json:"mime_type"`
+	Size     int64  `json:"size"`                // bytes on disk
+	FileName string `json:"file_name,omitempty"` // original name, if the document has one
+	Duration int    `json:"duration,omitempty"`  // seconds
+}
+
 type GetUserParams struct {
 	UserID   int64  // id of a private chat; 0 when Username is set
 	Username string // without @; "" when UserID is set

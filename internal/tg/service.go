@@ -12,6 +12,14 @@ var ErrUnknownChat = errors.New("unknown chat; call list_chats first")
 type Service struct {
 	api   *tgapi.Client
 	peers *PeerCache
+
+	downloadDir string
+	maxDownload int64 // bytes
+}
+
+// SetDownloads sets where download_media saves files and the largest file it downloads.
+func (s *Service) SetDownloads(dir string, maxBytes int64) {
+	s.downloadDir, s.maxDownload = dir, maxBytes
 }
 
 func NewService(inv tgapi.Invoker, peers *PeerCache) *Service {

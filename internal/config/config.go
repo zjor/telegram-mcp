@@ -15,7 +15,12 @@ type Config struct {
 	APIHash     string
 	SessionPath string // absolute file path
 	Debug       bool   // TELEGRAM_MCP_DEBUG: log every Telegram call to stderr
+
+	DownloadDir      string // absolute; TELEGRAM_MCP_DOWNLOAD_DIR, default <session dir>/downloads
+	MaxDownloadBytes int64  // TELEGRAM_MCP_MAX_DOWNLOAD_MB × 1 MiB, default 100 MiB
 }
+
+const defaultMaxDownloadMB = 100
 
 // PeersPath returns the peer cache path, next to the session file.
 func (c Config) PeersPath() string {
@@ -47,7 +52,33 @@ func Load(getenv func(string) string, homeDir string) (Config, error) {
 		}
 		session = abs
 	}
-	return Config{APIID: id, APIHash: hash, SessionPath: session, Debug: debugEnabled(getenv("TELEGRAM_MCP_DEBUG"))}, nil
+	dir := getenv("TELEGRAM_MCP_DOWNLOAD_DIR")
+	if dir == "" {
+		dir = filepath.Join(filepath.Dir(session), "downloads")
+	}
+	if !filepath.IsAbs(dir) {
+		abs, err := filepath.Abs(dir)
+		if err != nil {
+			return Config{}, fmt.Errorf("TELEGRAM_MCP_DOWNLOAD_DIR: %w", err)
+		}
+		dir = abs
+	}
+	maxMB := int64(defaultMaxDownloadMB)
+	if v := getenv("TELEGRAM_MCP_MAX_DOWNLOAD_MB"); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || n <= 0 {
+			return Config{}, fmt.Errorf("TELEGRAM_MCP_MAX_DOWNLOAD_MB must be a positive integer, got %q", v)
+		}
+		maxMB = n
+	}
+	return Config{
+		APIID:            id,
+		APIHash:          hash,
+		SessionPath:      session,
+		Debug:            debugEnabled(getenv("TELEGRAM_MCP_DEBUG")),
+		DownloadDir:      dir,
+		MaxDownloadBytes: maxMB << 20,
+	}, nil
 }
 
 // debugEnabled treats any value except "", "0" and "false" as on.
