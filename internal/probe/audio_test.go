@@ -74,3 +74,45 @@ func TestMP3_FLAC_EveryPrefixNoPanic(t *testing.T) {
 		}
 	}
 }
+
+func TestMP3_Variants(t *testing.T) {
+	tests := []struct {
+		name string
+		opts probetest.MP3Opts
+		dur  float64
+	}{
+		{"mpeg2 24k cbr", probetest.MP3Opts{Version: 2, RateIdx: 1, BitrateKbps: 64, Frames: 100}, 100 * 576.0 / 24000},
+		{"mpeg2 24k xing", probetest.MP3Opts{Version: 2, RateIdx: 1, BitrateKbps: 64, Frames: 1, Xing: 1000}, 1000 * 576.0 / 24000},
+		{"mpeg2 mono xing", probetest.MP3Opts{Version: 2, RateIdx: 1, Mono: true, BitrateKbps: 64, Frames: 1, Xing: 1000}, 1000 * 576.0 / 24000},
+		{"mpeg2.5 11k xing", probetest.MP3Opts{Version: 25, BitrateKbps: 32, Frames: 1, Xing: 500}, 500 * 576.0 / 11025},
+		{"mpeg1 mono xing", probetest.MP3Opts{Mono: true, BitrateKbps: 128, Frames: 1, Xing: 500}, 500 * 1152.0 / 44100},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := probeAudio(probetest.MP3FileOpts(tt.opts))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Format != "mp3" || math.Abs(got.Duration-tt.dur) > 0.1 {
+				t.Errorf("got %+v, want mp3 %.3f", got, tt.dur)
+			}
+		})
+	}
+}
+
+func TestMP3_ID3OddSize(t *testing.T) {
+	// Tag body 0x7F: the frames start at byte 137. The old size math gave 127.
+	// Plant a fake frame pair at 127 so a wrong start gives a wrong duration.
+	b := probetest.MP3FileOpts(probetest.MP3Opts{ID3: true, ID3Size: 0x7F, BitrateKbps: 128, Frames: 5})
+	fake := []byte{0xFF, 0xFB, 0x90, 0x00}
+	copy(b[127:], fake)
+	copy(b[127+417:], fake)
+	got, err := MP3(bytes.NewReader(b), int64(len(b)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := float64(len(b)-137) * 8 / 128000
+	if math.Abs(got-want) > 1e-9 {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}

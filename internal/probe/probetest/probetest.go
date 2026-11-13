@@ -111,25 +111,80 @@ func mp4Box(typ string, body []byte) []byte {
 // frame holds a Xing header with that frame count. frames is the number of
 // frames written, including the Xing frame.
 func MP3File(id3 bool, xingFrames, bitrateKbps, frames int) []byte {
+	return MP3FileOpts(MP3Opts{ID3: id3, Xing: xingFrames, BitrateKbps: bitrateKbps, Frames: frames})
+}
+
+// MP3Opts configures MP3FileOpts.
+type MP3Opts struct {
+	ID3         bool // start with an ID3v2 tag
+	ID3Size     int  // tag body size in bytes; 0 means 32
+	Version     int  // 1 (default), 2 or 25 for MPEG-2.5
+	RateIdx     int  // sample rate index 0..2 within the version
+	Mono        bool
+	Xing        int // Xing frame count in the first frame; 0 for none
+	BitrateKbps int
+	Frames      int // frames written, including the Xing frame
+}
+
+var (
+	mp3V1Bitrates = []int{0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320}
+	mp3V2Bitrates = []int{0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160}
+	mp3Rates      = map[int][3]int{1: {44100, 48000, 32000}, 2: {22050, 24000, 16000}, 25: {11025, 12000, 8000}}
+)
+
+// MP3FileOpts returns a synthetic MPEG Layer III file.
+func MP3FileOpts(o MP3Opts) []byte {
+	if o.Version == 0 {
+		o.Version = 1
+	}
 	var out []byte
-	if id3 {
-		out = append(out, "ID3\x03\x00\x00\x00\x00\x00\x20"...) // syncsafe size 32
-		out = append(out, make([]byte, 32)...)
+	if o.ID3 {
+		n := o.ID3Size
+		if n == 0 {
+			n = 32
+		}
+		out = append(out, "ID3\x03\x00\x00"...)
+		out = append(out, byte(n>>21&0x7f), byte(n>>14&0x7f), byte(n>>7&0x7f), byte(n&0x7f))
+		out = append(out, make([]byte, n)...)
+	}
+	table := mp3V1Bitrates
+	verBits := byte(3)
+	spf := 1152
+	switch o.Version {
+	case 2:
+		table, verBits, spf = mp3V2Bitrates, 2, 576
+	case 25:
+		table, verBits, spf = mp3V2Bitrates, 0, 576
 	}
 	idx := byte(0)
-	for i, kbps := range []int{0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320} {
-		if kbps == bitrateKbps {
+	for i, kbps := range table {
+		if kbps == o.BitrateKbps {
 			idx = byte(i)
 		}
 	}
-	frameLen := 144 * bitrateKbps * 1000 / 44100
-	for i := 0; i < frames; i++ {
+	rate := mp3Rates[o.Version][o.RateIdx]
+	frameLen := spf / 8 * o.BitrateKbps * 1000 / rate
+	// Xing offset after the 4-byte header: V1 stereo 32, V1 mono 17, V2 stereo 17, V2 mono 9.
+	xingOff := 36
+	if o.Version != 1 {
+		xingOff = 21
+	}
+	b3 := byte(0)
+	if o.Mono {
+		b3 = 0xC0
+		if o.Version == 1 {
+			xingOff = 21
+		} else {
+			xingOff = 13
+		}
+	}
+	for i := 0; i < o.Frames; i++ {
 		f := make([]byte, frameLen)
-		f[0], f[1], f[2], f[3] = 0xFF, 0xFB, idx<<4, 0x00
-		if i == 0 && xingFrames > 0 {
-			copy(f[36:], "Xing")
-			binary.BigEndian.PutUint32(f[40:], 1) // flags: frames present
-			binary.BigEndian.PutUint32(f[44:], uint32(xingFrames))
+		f[0], f[1], f[2], f[3] = 0xFF, 0xE0|verBits<<3|1<<1|1, idx<<4|byte(o.RateIdx)<<2, b3
+		if i == 0 && o.Xing > 0 {
+			copy(f[xingOff:], "Xing")
+			binary.BigEndian.PutUint32(f[xingOff+4:], 1) // flags: frames present
+			binary.BigEndian.PutUint32(f[xingOff+8:], uint32(o.Xing))
 		}
 		out = append(out, f...)
 	}
