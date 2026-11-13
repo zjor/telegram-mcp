@@ -85,3 +85,58 @@ func TestLoad_Debug(t *testing.T) {
 		}
 	}
 }
+
+func TestLoad_DownloadDefaults(t *testing.T) {
+	cfg, err := load(map[string]string{"TELEGRAM_API_ID": "1", "TELEGRAM_API_HASH": "abc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(filepath.Dir(cfg.SessionPath), "downloads"); cfg.DownloadDir != want {
+		t.Fatalf("DownloadDir = %q, want %q", cfg.DownloadDir, want)
+	}
+	if cfg.MaxDownloadBytes != 100<<20 {
+		t.Fatalf("MaxDownloadBytes = %d, want %d", cfg.MaxDownloadBytes, 100<<20)
+	}
+}
+
+func TestLoad_DownloadDirFromEnv(t *testing.T) {
+	env := map[string]string{"TELEGRAM_API_ID": "1", "TELEGRAM_API_HASH": "abc", "TELEGRAM_MCP_DOWNLOAD_DIR": "/x/dl"}
+	cfg, err := load(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DownloadDir != "/x/dl" {
+		t.Fatalf("DownloadDir = %q, want /x/dl", cfg.DownloadDir)
+	}
+	rel := filepath.Join("rel", "dl")
+	env["TELEGRAM_MCP_DOWNLOAD_DIR"] = rel
+	if cfg, err = load(env); err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.Abs(rel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DownloadDir != want {
+		t.Fatalf("DownloadDir = %q, want %q", cfg.DownloadDir, want)
+	}
+}
+
+func TestLoad_MaxDownloadMB(t *testing.T) {
+	env := func(v string) map[string]string {
+		return map[string]string{"TELEGRAM_API_ID": "1", "TELEGRAM_API_HASH": "abc", "TELEGRAM_MCP_MAX_DOWNLOAD_MB": v}
+	}
+	cfg, err := load(env("5"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MaxDownloadBytes != 5<<20 {
+		t.Fatalf("MaxDownloadBytes = %d, want %d", cfg.MaxDownloadBytes, 5<<20)
+	}
+	for _, v := range []string{"abc", "0", "-1"} {
+		_, err := load(env(v))
+		if err == nil || !strings.Contains(err.Error(), "TELEGRAM_MCP_MAX_DOWNLOAD_MB") {
+			t.Errorf("value %q: err = %v, want error naming TELEGRAM_MCP_MAX_DOWNLOAD_MB", v, err)
+		}
+	}
+}
