@@ -33,6 +33,20 @@ type fakeTelegram struct {
 	getUserParams tg.GetUserParams
 	getUserResult *tg.UserInfo
 	getUserErr    error
+
+	partsCalled bool
+	partsParams tg.ListParticipantsParams
+	partsResult *tg.ListParticipantsResult
+	partsErr    error
+}
+
+func (f *fakeTelegram) ListParticipants(_ context.Context, p tg.ListParticipantsParams) (*tg.ListParticipantsResult, error) {
+	f.partsCalled = true
+	f.partsParams = p
+	if f.partsErr != nil {
+		return nil, f.partsErr
+	}
+	return f.partsResult, nil
 }
 
 func (f *fakeTelegram) GetUser(_ context.Context, p tg.GetUserParams) (*tg.UserInfo, error) {
@@ -133,7 +147,7 @@ func TestListTools(t *testing.T) {
 		readOnly := tool.Annotations != nil && tool.Annotations.ReadOnlyHint
 		got[tool.Name] = readOnly
 	}
-	want := map[string]bool{"list_chats": true, "read_chat": true, "send_message": false, "get_user": true}
+	want := map[string]bool{"list_chats": true, "read_chat": true, "send_message": false, "get_user": true, "list_participants": true}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("tools = %v, want %v", got, want)
 	}
@@ -370,4 +384,70 @@ func TestGetUser_BackendError(t *testing.T) {
 	fake := &fakeTelegram{getUserErr: tg.ErrUsernameNotFound}
 	cs := newSession(t, fake)
 	expectToolError(t, callTool(t, cs, "get_user", map[string]any{"username": "nobody"}), "username not found")
+}
+
+func TestListParticipants_PassesParams(t *testing.T) {
+	total := 3
+	fake := &fakeTelegram{partsResult: &tg.ListParticipantsResult{
+		Source:       tg.SourceMembers,
+		Participants: []tg.Participant{{ID: 7, FirstName: "Ann", Role: "member"}},
+		Total:        &total,
+	}}
+	cs := newSession(t, fake)
+	res := callTool(t, cs, "list_participants", map[string]any{
+		"chat_id": 5, "chat_type": "supergroup", "query": " ann ", "filter": "bots", "limit": 10, "cursor": "c",
+	})
+	if res.IsError {
+		t.Fatalf("IsError = true: %s", resultText(t, res))
+	}
+	want := tg.ListParticipantsParams{ChatID: 5, ChatType: tg.ChatSupergroup, Query: "ann", Filter: tg.FilterBots, Limit: 10, Cursor: "c"}
+	if fake.partsParams != want {
+		t.Fatalf("params = %+v, want %+v", fake.partsParams, want)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(resultText(t, res)), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got["source"] != "members" || got["total"] != float64(3) || got["next_cursor"] != nil {
+		t.Fatalf("result = %v", got)
+	}
+}
+
+func TestListParticipants_Defaults(t *testing.T) {
+	fake := &fakeTelegram{partsResult: &tg.ListParticipantsResult{Source: tg.SourceRecentSenders, Participants: []tg.Participant{}}}
+	cs := newSession(t, fake)
+	res := callTool(t, cs, "list_participants", map[string]any{"chat_id": 5, "chat_type": "group"})
+	if res.IsError {
+		t.Fatalf("IsError = true: %s", resultText(t, res))
+	}
+	if fake.partsParams.Filter != tg.FilterAll || fake.partsParams.Limit != 50 || fake.partsParams.ChatType != tg.ChatGroup {
+		t.Fatalf("params = %+v", fake.partsParams)
+	}
+}
+
+func TestListParticipants_Validation(t *testing.T) {
+	for _, tc := range []struct {
+		args map[string]any
+		want string
+	}{
+		{map[string]any{"chat_id": 0, "chat_type": "group"}, "chat_id is required"},
+		{map[string]any{"chat_id": 5, "chat_type": "private"}, "list_participants supports group and supergroup only"},
+		{map[string]any{"chat_id": 5, "chat_type": "channel"}, "list_participants supports group and supergroup only"},
+		{map[string]any{"chat_id": 5, "chat_type": "bogus"}, "chat_type must be one of"},
+		{map[string]any{"chat_id": 5, "chat_type": "group", "filter": "kicked"}, "filter must be all, admins or bots"},
+		{map[string]any{"chat_id": 5, "chat_type": "group", "limit": 101}, "limit must be between 1 and 100"},
+	} {
+		fake := &fakeTelegram{}
+		cs := newSession(t, fake)
+		expectToolError(t, callTool(t, cs, "list_participants", tc.args), tc.want)
+		if fake.partsCalled {
+			t.Fatalf("%v: backend called", tc.args)
+		}
+	}
+}
+
+func TestListParticipants_BackendError(t *testing.T) {
+	cs := newSession(t, &fakeTelegram{partsErr: tg.ErrAdminsHidden})
+	res := callTool(t, cs, "list_participants", map[string]any{"chat_id": 5, "chat_type": "supergroup", "filter": "admins"})
+	expectToolError(t, res, "the group hides its admin list from members")
 }
