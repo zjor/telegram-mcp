@@ -179,7 +179,7 @@ filtering; offset advances by the number of items Telegram returned. Offset
 paging can shift if people join or leave between calls. That is accepted.
 
 Telegram caps "recent" listing for very large groups (about 10k, **unsure**:
-not checked in this repo). Past that cap, pages come back empty and paging
+not checked; the manual test groups were far smaller). Past that cap, pages come back empty and paging
 ends. `query` still finds people beyond the cap.
 
 **Basic group:** the full list comes from Step 1. Filter and `query` are
@@ -194,9 +194,9 @@ on the returned ids.
 ### Step 2b: Recent senders source
 
 - `filter=admins` first tries `channels.getParticipants` with
-  `ChannelParticipantsAdmins` (supergroup only). Telegram may allow this even
-  when the full list is hidden (**unsure**: settled by the manual test
-  below). If it returns `CHAT_ADMIN_REQUIRED` or another access error, the
+  `ChannelParticipantsAdmins` (supergroup only). Telegram allows this for a
+  regular member even when the full list is hidden (verified by the manual
+  test below). If it returns `CHAT_ADMIN_REQUIRED` or another access error, the
   tool returns `ErrAdminsHidden`. In that case `source` is `members`,
   because the admin list is complete. For basic groups with a hidden list,
   `filter=admins` returns `ErrAdminsHidden`.
@@ -285,6 +285,26 @@ Manual test before merge, against real chats:
 2. A large public supergroup with hidden members, with and without
    `filter=admins`. This settles the open admin question.
 3. A basic group.
+
+## Manual test results
+
+Run on 2026-11-13 against the owner's account, as a regular member.
+
+| Chat | Type | Result |
+| --- | --- | --- |
+| "Holidays" | basic group, 17 members | `source=members`, all 17 with roles and `joined_at`, `total=17`, no cursor. |
+| "Чат. Анализ систем" | supergroup, 269 members, list visible | `source=members`, pages of 20 with cursor, `total=269`. `filter=admins`: creator, 2 admins and 1 bot admin. |
+| "Чат Друзей \| Прага Брно Чехия" | supergroup, members hidden | `source=recent_senders`, 20 unique senders newest first, `total=null`, cursor set. `filter=admins`: `source=members`, creator and 1 admin. |
+| "Друзья \| Прага Брно Чехия" | broadcast channel sent as `supergroup` | Error `list_participants supports group and supergroup only`. |
+
+Findings:
+
+- A regular member **can** read the admin list of a group that hides its
+  members. `ErrAdminsHidden` stays as a guard for groups where Telegram
+  refuses.
+- `get_user` worked on a fallback sender without a username, so that sender
+  was not a "min" user. The min-user limit is still possible for others.
+- The ~10k "recent" cap is still not checked.
 
 ## Left to the builder
 
