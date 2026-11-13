@@ -216,3 +216,41 @@ func TestFallback_AdminsBasicGroup(t *testing.T) {
 		t.Fatal("unexpected state")
 	}
 }
+
+func expectFullChannelWith(t *testing.T, mock *tgmock.Mock, full *tgapi.ChannelFull, ch *tgapi.Channel) {
+	ch.ID, ch.AccessHash, ch.Photo = sgID, sgHash, &tgapi.ChatPhotoEmpty{}
+	mock.ExpectFunc(func(b bin.Encoder) {
+		t.Helper()
+		if _, ok := b.(*tgapi.ChannelsGetFullChannelRequest); !ok {
+			t.Fatalf("request type %T, want *ChannelsGetFullChannelRequest", b)
+		}
+	}).ThenResult(&tgapi.MessagesChatFull{FullChat: full, Chats: []tgapi.ChatClass{ch}})
+}
+
+func TestListParticipants_AdminOfHiddenGroupGetsMembers(t *testing.T) {
+	admin := &tgapi.Channel{Megagroup: true}
+	admin.SetAdminRights(tgapi.ChatAdminRights{BanUsers: true})
+	for name, ch := range map[string]*tgapi.Channel{"creator": {Megagroup: true, Creator: true}, "admin": admin} {
+		s, mock := sgService(t)
+		expectFullChannelWith(t, mock, hiddenChannel(), ch)
+		expectParticipants(t, mock, func(r *tgapi.ChannelsGetParticipantsRequest) {
+			if _, ok := r.Filter.(*tgapi.ChannelParticipantsRecent); !ok {
+				t.Errorf("%s: Filter = %T, want Recent", name, r.Filter)
+			}
+		}, threeMembers())
+		if res := list(t, s, ListParticipantsParams{ChatID: sgID, ChatType: ChatSupergroup}); res.Source != SourceMembers {
+			t.Fatalf("%s: Source = %q, want members", name, res.Source)
+		}
+	}
+}
+
+func TestListParticipants_BroadcastRejected(t *testing.T) {
+	s, mock := sgService(t)
+	full := hiddenChannel()
+	full.CanViewParticipants, full.ParticipantsHidden = false, false
+	expectFullChannelWith(t, mock, full, &tgapi.Channel{Broadcast: true})
+	_, err := s.ListParticipants(context.Background(), ListParticipantsParams{ChatID: sgID, ChatType: ChatSupergroup, Filter: FilterAll, Limit: 50})
+	if !errors.Is(err, ErrNotAGroup) || err.Error() != "list_participants supports group and supergroup only" {
+		t.Fatalf("err = %v, want ErrNotAGroup", err)
+	}
+}

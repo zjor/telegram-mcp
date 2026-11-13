@@ -143,7 +143,11 @@ type ListParticipantsResult struct {
 
 - **Supergroup:** `channels.getFullChannel`. The list is visible when
   `CanViewParticipants` is true and `ParticipantsHidden` is false.
-  `Total` = `ParticipantsCount`.
+  `Total` = `ParticipantsCount`. If the owner is the creator or an admin
+  (the `Channel` in the response has `Creator` or admin rights), the list
+  counts as visible, because the hidden flag stays true for admins. If that
+  `Channel` is a broadcast channel, the tool returns
+  `list_participants supports group and supergroup only`.
 - **Basic group:** `messages.getFullChat`. The list is visible when
   `Participants` is `ChatParticipants`. `ChatParticipantsForbidden` means
   hidden. `Total` = number of participants.

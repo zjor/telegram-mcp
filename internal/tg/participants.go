@@ -13,6 +13,7 @@ import (
 var (
 	ErrNotAMember   = errors.New("you are not a member of this chat")
 	ErrAdminsHidden = errors.New("the group hides its admin list from members")
+	ErrNotAGroup    = errors.New("list_participants supports group and supergroup only")
 )
 
 const (
@@ -43,7 +44,18 @@ func (s *Service) ListParticipants(ctx context.Context, p ListParticipantsParams
 
 	switch fc := full.FullChat.(type) {
 	case *tgapi.ChannelFull:
-		if !fc.CanViewParticipants || fc.ParticipantsHidden {
+		self := findChannel(full.Chats, fc.ID)
+		if self != nil && self.Broadcast {
+			return nil, ErrNotAGroup
+		}
+		// The owner's admin rights override the hidden flag: the group
+		// setting stays true for admins, but they can list members.
+		isAdmin := false
+		if self != nil {
+			_, hasRights := self.GetAdminRights()
+			isAdmin = self.Creator || hasRights
+		}
+		if !isAdmin && (!fc.CanViewParticipants || fc.ParticipantsHidden) {
 			return s.hiddenList(ctx, peer, p, cur)
 		}
 		if cur.Source != SourceMembers {
@@ -236,6 +248,15 @@ func groupMembers(p ListParticipantsParams, offset int, list *tgapi.ChatParticip
 		}
 	}
 	return res
+}
+
+func findChannel(chats []tgapi.ChatClass, id int64) *tgapi.Channel {
+	for _, c := range chats {
+		if ch, ok := c.(*tgapi.Channel); ok && ch.ID == id {
+			return ch
+		}
+	}
+	return nil
 }
 
 func usersByID(users []tgapi.UserClass) map[int64]*tgapi.User {
