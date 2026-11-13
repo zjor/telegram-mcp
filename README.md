@@ -1,7 +1,7 @@
 | `TELEGRAM_MCP_DEBUG` | no | Set to `1` to log every Telegram call (method, duration, result or error) and gotd connection events to stderr. Payloads are not logged. |
 # telegram-mcp
 
-An MCP server for Telegram. It runs as your own user account over MTProto, not as a bot. It has four tools: `list_chats`, `read_chat`, `send_message` and `get_user`. It cannot edit or delete anything.
+An MCP server for Telegram. It runs as your own user account over MTProto, not as a bot. It has five tools: `list_chats`, `read_chat`, `send_message`, `get_user` and `download_media`. It cannot edit or delete anything.
 
 `get_user` returns the profile details of one user, found by `user_id` or `username`. Phone number and birthday appear only when Telegram shows them to you.
 
@@ -24,6 +24,8 @@ go build -o telegram-mcp ./cmd/telegram-mcp
 | `TELEGRAM_API_HASH` | yes | Telegram API hash |
 | `TELEGRAM_SESSION_PATH` | no | Session file. Default `~/.config/telegram-mcp/session.json` |
 | `TELEGRAM_MCP_DEBUG` | no | Set to `1` to log every Telegram call (method, duration, result or error) and gotd connection events to stderr. Payloads are not logged. |
+| `TELEGRAM_MCP_DOWNLOAD_DIR` | no | Folder for `download_media` files. Default `downloads/` next to the session file. |
+| `TELEGRAM_MCP_MAX_DOWNLOAD_MB` | no | Largest file `download_media` downloads, in MiB. Default `100`. |
 
 ## Log in (once)
 
@@ -167,6 +169,33 @@ Underline has no Markdown syntax and is not supported.
 
 The chat must be one of your own dialogs. An id that is not in your chat list fails with the same `list_chats` error as `read_chat`, so a message cannot go to an unknown chat.
 
+### `download_media`
+
+Save the attachment of one message to a local file. The tool returns the path, not the file content.
+
+Input:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `chat_id` | int64, required | `id` from `list_chats`. `0` fails with `chat_id is required`. |
+| `chat_type` | string, required | `type` from `list_chats` |
+| `message_id` | int, required | `id` of a message from `read_chat`. Must be positive. |
+
+Output:
+
+| Field | Notes |
+| --- | --- |
+| `path` | Absolute path: `<download dir>/<chat_id>_<message_id>.<ext>` |
+| `kind` | `voice`, `audio`, `video`, `video_note`, `photo`, `document`, `sticker` or `gif` |
+| `mime_type` | For example `audio/ogg` for voice messages |
+| `size` | Bytes on disk |
+| `file_name` | Original file name of a document. Omitted if there is none. |
+| `duration` | Seconds, for voice, audio and video. Omitted if unknown. |
+
+Voice messages are saved as `.ogg` (Opus). Photos are saved in their largest size as `.jpg`. If the file already exists, it is returned without a new download. A failed download leaves no partial file.
+
+Errors: `message not found`, `message has no media`, `media cannot be downloaded` (location, contact, poll, link preview), and `file is N bytes, limit is M` when the file is larger than `TELEGRAM_MCP_MAX_DOWNLOAD_MB`.
+
 ### Paging example
 
 1. Call `read_chat` with `chat_id` and `chat_type`.
@@ -188,6 +217,7 @@ Telegram flood waits of up to 60 s are waited out inside the server. Longer ones
 | --- | --- |
 | `session.json` | Your Telegram session. Treat it like a password. |
 | `peers.json` | Cache of chat access data. It is in the same folder as the session file. |
+| `downloads/` | Files saved by `download_media`. The folder has mode 0700. |
 
 Both files have mode 0600. `peers.json` is created on the first successful `list_chats`, `read_chat` or `send_message`.
 
