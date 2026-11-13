@@ -86,11 +86,29 @@ func (s *Service) getMessage(ctx context.Context, peer tgapi.InputPeerClass, id 
 		slog.Warn("save peer cache", "err", err)
 	}
 	for _, mc := range modified.GetMessages() {
-		if m, ok := mc.(*tgapi.Message); ok && m.ID == id {
+		if m, ok := mc.(*tgapi.Message); ok && m.ID == id && inputPeerIs(peer, m.PeerID) {
 			return m, nil
 		}
 	}
 	return nil, ErrMessageNotFound
+}
+
+// inputPeerIs reports whether a message's peer is the requested chat.
+// messages.getMessages ignores the chat: ids of private chats and basic
+// groups are account-wide, so an id from another chat must be rejected.
+func inputPeerIs(in tgapi.InputPeerClass, p tgapi.PeerClass) bool {
+	switch in := in.(type) {
+	case *tgapi.InputPeerUser:
+		u, ok := p.(*tgapi.PeerUser)
+		return ok && u.UserID == in.UserID
+	case *tgapi.InputPeerChat:
+		c, ok := p.(*tgapi.PeerChat)
+		return ok && c.ChatID == in.ChatID
+	case *tgapi.InputPeerChannel:
+		c, ok := p.(*tgapi.PeerChannel)
+		return ok && c.ChannelID == in.ChannelID
+	}
+	return false
 }
 
 // downloadTo writes the file to a temp file in the same directory and renames

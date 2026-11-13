@@ -82,6 +82,8 @@ func TestDownloadMedia_PrivateVoice(t *testing.T) {
 func TestDownloadMedia_ChannelUsesChannelsGetMessages(t *testing.T) {
 	s, mock, _ := newDownloadService(t)
 	s.peers.Put(ChatChannel, 5, 11)
+	msg := voiceMessage(10, 3)
+	msg.PeerID = &tgapi.PeerChannel{ChannelID: 5}
 	mock.ExpectFunc(func(b bin.Encoder) {
 		req, ok := b.(*tgapi.ChannelsGetMessagesRequest)
 		if !ok {
@@ -91,7 +93,7 @@ func TestDownloadMedia_ChannelUsesChannelsGetMessages(t *testing.T) {
 		if !ok || ch.ChannelID != 5 || ch.AccessHash != 11 {
 			t.Errorf("Channel = %#v, want InputChannel{5, 11}", req.Channel)
 		}
-	}).ThenResult(&tgapi.MessagesChannelMessages{Messages: []tgapi.MessageClass{voiceMessage(10, 3)}})
+	}).ThenResult(&tgapi.MessagesChannelMessages{Messages: []tgapi.MessageClass{msg}})
 	expectGetFile(t, mock, "abc")
 
 	res, err := s.DownloadMedia(context.Background(), DownloadMediaParams{ChatID: 5, ChatType: ChatChannel, MessageID: 10})
@@ -145,6 +147,22 @@ func TestDownloadMedia_MessageNotFound(t *testing.T) {
 	_, err := s.DownloadMedia(context.Background(), DownloadMediaParams{ChatID: 7, ChatType: ChatPrivate, MessageID: 10})
 	if !errors.Is(err, ErrMessageNotFound) {
 		t.Fatalf("err = %v, want ErrMessageNotFound", err)
+	}
+}
+
+func TestDownloadMedia_MessageFromOtherChat(t *testing.T) {
+	s, mock, dir := newDownloadService(t)
+	s.peers.Put(ChatPrivate, 7, 9)
+	other := voiceMessage(10, 3)
+	other.PeerID = &tgapi.PeerUser{UserID: 8}
+	expectGetMessages(t, mock, 10, other)
+
+	_, err := s.DownloadMedia(context.Background(), DownloadMediaParams{ChatID: 7, ChatType: ChatPrivate, MessageID: 10})
+	if !errors.Is(err, ErrMessageNotFound) {
+		t.Fatalf("err = %v, want ErrMessageNotFound", err)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Fatalf("dir has %d entries, want none", len(entries))
 	}
 }
 
