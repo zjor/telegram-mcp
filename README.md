@@ -1,7 +1,7 @@
 | `TELEGRAM_MCP_DEBUG` | no | Set to `1` to log every Telegram call (method, duration, result or error) and gotd connection events to stderr. Payloads are not logged. |
 # telegram-mcp
 
-An MCP server for Telegram. It runs as your own user account over MTProto, not as a bot. It has six tools: `list_chats`, `read_chat`, `send_message`, `get_user`, `list_participants` and `download_media`. It cannot edit or delete anything.
+An MCP server for Telegram. It runs as your own user account over MTProto, not as a bot. It has seven tools: `list_chats`, `read_chat`, `send_message`, `send_file`, `get_user`, `list_participants` and `download_media`. It cannot edit or delete anything.
 
 `get_user` returns the profile details of one user, found by `user_id` or `username`. Phone number and birthday appear only when Telegram shows them to you.
 
@@ -28,6 +28,10 @@ go build -o telegram-mcp ./cmd/telegram-mcp
 | `TELEGRAM_MCP_DEBUG` | no | Set to `1` to log every Telegram call (method, duration, result or error) and gotd connection events to stderr. Payloads are not logged. |
 | `TELEGRAM_MCP_DOWNLOAD_DIR` | no | Folder for `download_media` files. Default `downloads/` next to the session file. |
 | `TELEGRAM_MCP_MAX_DOWNLOAD_MB` | no | Largest file `download_media` downloads, in MiB. Default `100`. |
+| `TELEGRAM_MCP_SEND_DIRS` | no | Folders `send_file` may read from. Separated by `:` on macOS and Linux (`os.PathListSeparator`). Relative entries are made absolute. Empty entries are ignored. Default: the download folder only. |
+| `TELEGRAM_MCP_MAX_UPLOAD_MB` | no | Largest file `send_file` sends, in MiB. Positive integer. Default `100`. |
+
+A folder in `TELEGRAM_MCP_SEND_DIRS` that does not exist is skipped with a warning on stderr. It is not a startup error. `serve` resolves the folders once at start. If you create the folder later, restart `serve`. When `TELEGRAM_MCP_SEND_DIRS` is not set, `serve` creates the download folder at start (mode 0700) if it is missing.
 
 ## Log in (once)
 
@@ -77,7 +81,7 @@ claude mcp add telegram -e TELEGRAM_API_ID=… -e TELEGRAM_API_HASH=… -- /abso
 
 ## Tools
 
-All tools are read-only. Each result is JSON.
+`send_message` and `send_file` send messages. All other tools are read-only. Each result is JSON.
 
 ### `list_chats`
 
@@ -171,6 +175,51 @@ Underline has no Markdown syntax and is not supported.
 
 The chat must be one of your own dialogs. An id that is not in your chat list fails with the same `list_chats` error as `read_chat`, so a message cannot go to an unknown chat.
 
+### `send_file`
+
+Send a local file to one chat as yourself. The file must be inside an allowed folder (see `TELEGRAM_MCP_SEND_DIRS`).
+
+Input:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `chat_id` | int64, required | `id` from `list_chats`. `0` fails with `chat_id is required`. |
+| `chat_type` | string, required | `type` from `list_chats` |
+| `path` | string, required | Absolute path of the file. An empty path fails with `path is required`. A relative path fails with `path must be an absolute path`. |
+| `kind` | string, required | `photo`, `document`, `audio`, `voice`, `video` or `video_note`. Any other value fails with `kind must be one of photo, document, audio, voice, video, video_note`. |
+| `caption` | string, optional | Caption in Markdown, same syntax as `send_message`. Not allowed with `video_note`: `video_note cannot have a caption`. |
+| `reply_to` | int, optional | `id` of a message from `read_chat` to reply to. Must not be negative. |
+
+Output: `{ "id": int, "date": int }`, the id and Unix time of the sent message.
+
+The server checks the file content (magic bytes), not the extension. It does not convert files.
+
+| kind | Accepted format |
+| --- | --- |
+| `photo` | JPEG, PNG or WebP. Up to 10 MiB. |
+| `document` | Any file. The MIME type comes from the extension. |
+| `audio` | MP3, M4A (AAC), OGG (Opus or Vorbis) or FLAC |
+| `voice` | OGG with Opus |
+| `video` | MP4 with H.264. The audio track is optional, AAC if present. |
+| `video_note` | Square MP4 with H.264, at most 60 s. The audio track is optional, AAC if present. |
+
+Errors:
+
+- `path is outside the allowed folders (TELEGRAM_MCP_SEND_DIRS)`. The error does not say whether the file exists.
+- `path is not a regular file`
+- `file is empty`
+- `file is N bytes, limit is M`, when the file is larger than `TELEGRAM_MCP_MAX_UPLOAD_MB`.
+- `photo is N bytes, Telegram limit is 10 MiB; send it as document`
+- `photo needs JPEG, PNG or WebP; send it as document instead`
+- `audio needs MP3, M4A, OGG or FLAC; send it as document instead`
+- `voice needs OGG/Opus; convert with: ffmpeg -i <in> -c:a libopus -b:a 32k out.ogg`
+- `<kind> needs MP4 with H.264; convert with: ffmpeg -i <in> -c:v libx264 -c:a aac out.mp4`, for `video` and `video_note`.
+- `video_note must be square, got WxH; crop with: ffmpeg -i in.mp4 -vf "crop='min(iw,ih)':'min(iw,ih)',scale=384:384" -c:v libx264 -c:a aac out.mp4`
+- `video_note is N s, limit is 60 s`
+- `<kind>: cannot read duration; remux with: ffmpeg -i <in> -c copy -movflags +faststart out.mp4`, for `video` and `video_note`, when the MP4 has no duration (fragmented files from some screen recorders).
+
+The path and format checks run before any Telegram call. The chat must be one of your own dialogs, as for `send_message`.
+
 ### `list_participants`
 
 List the members of a group or supergroup. Broadcast channels are not supported.
@@ -252,7 +301,7 @@ Telegram flood waits of up to 60 s are waited out inside the server. Longer ones
 | `peers.json` | Cache of chat access data. It is in the same folder as the session file. |
 | `downloads/` | Files saved by `download_media`. The folder has mode 0700. |
 
-Both files have mode 0600. `peers.json` is created on the first successful `list_chats`, `read_chat` or `send_message`.
+Both files have mode 0600. `peers.json` is created on the first successful `list_chats`, `read_chat`, `send_message` or `send_file`.
 
 Run only one server instance at a time. The files are not locked.
 
@@ -279,6 +328,8 @@ Run these checks yourself after the first setup.
   ```
   hello **bold** _italic_ ~~strike~~ ||spoiler|| `code` [link](https://example.com)
   ```
+- [ ] Call `send_file` once per kind (`photo`, `document`, `audio`, `voice`, `video`, `video_note`) to your Saved Messages chat, with files inside the download folder. Each one arrives. Check that the voice message and the video circle show correctly in the Telegram app on phone and desktop.
+- [ ] Call `send_file` with a path outside the allowed folders. It fails with `path is outside the allowed folders (TELEGRAM_MCP_SEND_DIRS)`.
 - [ ] `ls -l ~/.config/telegram-mcp/peers.json` shows `-rw-------`.
 - [ ] `TELEGRAM_API_ID=1 TELEGRAM_API_HASH=x TELEGRAM_SESSION_PATH=/tmp/none.json ./telegram-mcp serve` exits with code 3 and prints the `run "telegram-mcp login" first` hint.
 - [ ] `./telegram-mcp logout` prints `Logged out` and removes both `session.json` and `peers.json`.

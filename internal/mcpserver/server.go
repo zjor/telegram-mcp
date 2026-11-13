@@ -4,6 +4,7 @@ package mcpserver
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -22,6 +23,16 @@ type Telegram interface {
 	GetUser(ctx context.Context, p tg.GetUserParams) (*tg.UserInfo, error)
 	ListParticipants(ctx context.Context, p tg.ListParticipantsParams) (*tg.ListParticipantsResult, error)
 	DownloadMedia(ctx context.Context, p tg.DownloadMediaParams) (*tg.DownloadMediaResult, error)
+	SendFile(ctx context.Context, p tg.SendFileParams) (*tg.SendFileResult, error)
+}
+
+type SendFileInput struct {
+	ChatID   int64  `json:"chat_id"   jsonschema:"id from list_chats"`
+	ChatType string `json:"chat_type" jsonschema:"private, group, supergroup or channel"`
+	Path     string `json:"path"      jsonschema:"absolute path of a local file inside an allowed folder"`
+	Kind     string `json:"kind"      jsonschema:"photo, document, audio, voice, video or video_note"`
+	Caption  string `json:"caption,omitempty"  jsonschema:"optional caption in Markdown, same syntax as send_message"`
+	ReplyTo  int    `json:"reply_to,omitempty" jsonschema:"optional id of a message from read_chat to reply to"`
 }
 
 type DownloadMediaInput struct {
@@ -66,6 +77,7 @@ type GetUserInput struct {
 }
 
 const (
+	sendFileDescription = "Send a local file to a chat as yourself. kind is photo, document, audio, voice, video or video_note. Pass chat_id and chat_type from list_chats. The path must be inside a folder allowed by TELEGRAM_MCP_SEND_DIRS. voice needs an OGG/Opus file. video needs an MP4 (H.264). video_note needs a square MP4 (H.264) of at most 60 s. The server does not convert files."
 	downloadMediaDescription    = "Download the attachment of one message (voice, audio, video, photo, document, sticker) to a local file and return its path. Pass chat_id and chat_type from list_chats and message_id from read_chat. The file content is not returned."
 	getUserDescription         = "Get all profile details Telegram shows for one user: name, username, phone, bio, birthday, status, relation to you, account flags, business info. Pass user_id (chat_id of a private chat from list_chats) or username. Fields Telegram hides are omitted."
 	sendMessageDescription      = "Send a text message to one chat as the logged-in user. Text is Markdown: **bold**, *italic*, ~~strikethrough~~, ||spoiler||, `code`, ```fenced code```, [link](url), > quote. Unmatched markers are sent as plain text. Pass reply_to to reply to a message id from read_chat."
@@ -75,7 +87,7 @@ const (
 )
 
 // New builds an MCP server with the list_chats, read_chat, send_message,
-// get_user, list_participants and download_media tools.
+// get_user, list_participants, download_media and send_file tools.
 func New(t Telegram) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "telegram-mcp", Version: Version}, nil)
 
@@ -114,7 +126,53 @@ func New(t Telegram) *mcp.Server {
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, downloadMediaHandler(t))
 
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "send_file",
+		Description: sendFileDescription,
+	}, sendFileHandler(t))
+
 	return s
+}
+
+func sendFileHandler(t Telegram) mcp.ToolHandlerFor[SendFileInput, *tg.SendFileResult] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in SendFileInput) (*mcp.CallToolResult, *tg.SendFileResult, error) {
+		if in.ChatID == 0 {
+			return nil, nil, errors.New("chat_id is required")
+		}
+		chatType, err := parseChatType(in.ChatType)
+		if err != nil {
+			return nil, nil, err
+		}
+		if in.Path == "" {
+			return nil, nil, errors.New("path is required")
+		}
+		if !filepath.IsAbs(in.Path) {
+			return nil, nil, errors.New("path must be an absolute path")
+		}
+		kind, err := tg.ParseFileKind(in.Kind)
+		if err != nil {
+			return nil, nil, err
+		}
+		caption := strings.TrimSpace(in.Caption)
+		if caption != "" && kind == tg.KindVideoNote {
+			return nil, nil, errors.New("video_note cannot have a caption")
+		}
+		if in.ReplyTo < 0 {
+			return nil, nil, errors.New("reply_to must not be negative")
+		}
+		res, err := t.SendFile(ctx, tg.SendFileParams{
+			ChatID:   in.ChatID,
+			ChatType: chatType,
+			Path:     in.Path,
+			Kind:     kind,
+			Caption:  caption,
+			ReplyTo:  in.ReplyTo,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, res, nil
+	}
 }
 
 func downloadMediaHandler(t Telegram) mcp.ToolHandlerFor[DownloadMediaInput, *tg.DownloadMediaResult] {

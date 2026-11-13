@@ -97,6 +97,16 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		// *telegram.Client implements tgapi.Invoker; client.API() does not.
 		svc := tg.NewService(client, peers)
 		svc.SetDownloads(cfg.DownloadDir, cfg.MaxDownloadBytes)
+		if cfg.SendDirsDefault {
+			// The default send folder is the download folder. Create it so
+			// the path check can resolve it on a fresh install.
+			if err := os.MkdirAll(cfg.DownloadDir, 0o700); err != nil {
+				logger.Warn("cannot create download folder", "dir", cfg.DownloadDir, "error", err)
+			}
+		}
+		svc.SetUploads(tg.NewSendDirs(cfg.SendDirs, func(dir string, err error) {
+			logger.Warn("send dir skipped", "dir", dir, "error", err)
+		}), cfg.MaxUploadBytes)
 		return mcpserver.New(svc).Run(ctx, &mcp.StdioTransport{})
 	})
 }

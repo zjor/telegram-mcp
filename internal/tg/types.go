@@ -1,5 +1,7 @@
 package tg
 
+import "errors"
+
 type ChatType string
 
 const (
@@ -69,6 +71,18 @@ type SendMessageParams struct {
 	Text     string // Markdown
 	ReplyTo  int    // message id to reply to; 0 for none
 }
+
+type SendFileParams struct {
+	ChatID   int64
+	ChatType ChatType
+	Path     string
+	Kind     FileKind
+	Caption  string // Markdown; "" for none
+	ReplyTo  int    // message id to reply to; 0 for none
+}
+
+// SendFileResult has the same JSON shape as SendMessageResult.
+type SendFileResult = SendMessageResult
 
 type SendMessageResult struct {
 	ID   int   `json:"id"`
@@ -194,4 +208,25 @@ type ListParticipantsResult struct {
 	Participants []Participant     `json:"participants"`
 	Total        *int              `json:"total"`       // member count Telegram reports; null for recent_senders
 	NextCursor   *string           `json:"next_cursor"` // null on the last page
+}
+
+// FileKind is how send_file sends a file.
+type FileKind string
+
+const (
+	KindPhoto     FileKind = "photo"
+	KindDocument  FileKind = "document"
+	KindAudio     FileKind = "audio"
+	KindVoice     FileKind = "voice"
+	KindVideo     FileKind = "video"
+	KindVideoNote FileKind = "video_note"
+)
+
+// ParseFileKind returns the kind named by s.
+func ParseFileKind(s string) (FileKind, error) {
+	switch k := FileKind(s); k {
+	case KindPhoto, KindDocument, KindAudio, KindVoice, KindVideo, KindVideoNote:
+		return k, nil
+	}
+	return "", errors.New("kind must be one of photo, document, audio, voice, video, video_note")
 }

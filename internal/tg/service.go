@@ -15,6 +15,14 @@ type Service struct {
 
 	downloadDir string
 	maxDownload int64 // bytes
+
+	sendDirs  SendDirs
+	maxUpload int64 // bytes
+}
+
+// SetUploads sets the folders send_file may read from and the largest file it uploads.
+func (s *Service) SetUploads(dirs SendDirs, maxBytes int64) {
+	s.sendDirs, s.maxUpload = dirs, maxBytes
 }
 
 // SetDownloads sets where download_media saves files and the largest file it downloads.

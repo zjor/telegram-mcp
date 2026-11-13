@@ -20,11 +20,10 @@ func (s *Service) SendMessage(ctx context.Context, p SendMessageParams) (*SendMe
 		return nil, err
 	}
 
-	var b entity.Builder
-	if err := markdown.Markdown(strings.NewReader(p.Text), &b, markdown.Options{}); err != nil {
-		return nil, fmt.Errorf("parse markdown: %w", err)
+	text, entities, err := parseMarkdown(p.Text)
+	if err != nil {
+		return nil, err
 	}
-	text, entities := b.Complete()
 
 	req := &tgapi.MessagesSendMessageRequest{
 		Peer:     peer,
@@ -43,6 +42,16 @@ func (s *Service) SendMessage(ctx context.Context, p SendMessageParams) (*SendMe
 		return nil, fmt.Errorf("messages.sendMessage: %w", err)
 	}
 	return &SendMessageResult{ID: msg.ID, Date: int64(msg.Date)}, nil
+}
+
+// parseMarkdown converts Markdown to plain text and Telegram entities.
+func parseMarkdown(md string) (string, []tgapi.MessageEntityClass, error) {
+	var b entity.Builder
+	if err := markdown.Markdown(strings.NewReader(md), &b, markdown.Options{}); err != nil {
+		return "", nil, fmt.Errorf("parse markdown: %w", err)
+	}
+	text, entities := b.Complete()
+	return text, entities, nil
 }
 
 func randomID() int64 {
