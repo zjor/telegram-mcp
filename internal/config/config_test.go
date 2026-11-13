@@ -140,3 +140,82 @@ func TestLoad_MaxDownloadMB(t *testing.T) {
 		}
 	}
 }
+
+func TestLoad_SendDirsDefault(t *testing.T) {
+	cfg, err := load(map[string]string{"TELEGRAM_API_ID": "1", "TELEGRAM_API_HASH": "abc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.SendDirs) != 1 || cfg.SendDirs[0] != cfg.DownloadDir {
+		t.Fatalf("SendDirs = %q, want [%q]", cfg.SendDirs, cfg.DownloadDir)
+	}
+	if !cfg.SendDirsDefault {
+		t.Fatalf("SendDirsDefault = false, want true")
+	}
+	if cfg.MaxUploadBytes != 100<<20 {
+		t.Fatalf("MaxUploadBytes = %d, want %d", cfg.MaxUploadBytes, 100<<20)
+	}
+}
+
+func TestLoad_SendDirsFromEnv(t *testing.T) {
+	rel := filepath.Join("rel", "dir")
+	env := map[string]string{
+		"TELEGRAM_API_ID":        "1",
+		"TELEGRAM_API_HASH":      "abc",
+		"TELEGRAM_MCP_SEND_DIRS": "/a" + string(filepath.ListSeparator) + rel + string(filepath.ListSeparator) + string(filepath.ListSeparator) + "/b/",
+	}
+	cfg, err := load(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.Abs(rel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDirs := []string{"/a", want, "/b"}
+	if len(cfg.SendDirs) != len(wantDirs) {
+		t.Fatalf("SendDirs = %q, want %q", cfg.SendDirs, wantDirs)
+	}
+	for i := range wantDirs {
+		if cfg.SendDirs[i] != wantDirs[i] {
+			t.Fatalf("SendDirs = %q, want %q", cfg.SendDirs, wantDirs)
+		}
+	}
+	if cfg.SendDirsDefault {
+		t.Fatalf("SendDirsDefault = true, want false")
+	}
+}
+
+func TestLoad_SendDirsOnlyEmptyEntriesIsDefault(t *testing.T) {
+	env := map[string]string{
+		"TELEGRAM_API_ID":        "1",
+		"TELEGRAM_API_HASH":      "abc",
+		"TELEGRAM_MCP_SEND_DIRS": string(filepath.ListSeparator) + string(filepath.ListSeparator),
+	}
+	cfg, err := load(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.SendDirsDefault || len(cfg.SendDirs) != 1 || cfg.SendDirs[0] != cfg.DownloadDir {
+		t.Fatalf("SendDirs = %q, SendDirsDefault = %v; want download dir default", cfg.SendDirs, cfg.SendDirsDefault)
+	}
+}
+
+func TestLoad_MaxUploadMB(t *testing.T) {
+	env := func(v string) map[string]string {
+		return map[string]string{"TELEGRAM_API_ID": "1", "TELEGRAM_API_HASH": "abc", "TELEGRAM_MCP_MAX_UPLOAD_MB": v}
+	}
+	cfg, err := load(env("5"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MaxUploadBytes != 5<<20 {
+		t.Fatalf("MaxUploadBytes = %d, want %d", cfg.MaxUploadBytes, 5<<20)
+	}
+	for _, v := range []string{"0", "-1", "x"} {
+		_, err := load(env(v))
+		if err == nil || !strings.Contains(err.Error(), "TELEGRAM_MCP_MAX_UPLOAD_MB must be a positive integer") {
+			t.Errorf("value %q: err = %v, want error naming TELEGRAM_MCP_MAX_UPLOAD_MB", v, err)
+		}
+	}
+}
