@@ -105,3 +105,44 @@ func mp4Box(typ string, body []byte) []byte {
 	out = append(out, typ...)
 	return append(out, body...)
 }
+
+// MP3File returns a synthetic MPEG-1 Layer III file at 44100 Hz, stereo. If
+// id3 is true, it starts with an ID3v2 tag. If xingFrames > 0, the first
+// frame holds a Xing header with that frame count. frames is the number of
+// frames written, including the Xing frame.
+func MP3File(id3 bool, xingFrames, bitrateKbps, frames int) []byte {
+	var out []byte
+	if id3 {
+		out = append(out, "ID3\x03\x00\x00\x00\x00\x00\x20"...) // syncsafe size 32
+		out = append(out, make([]byte, 32)...)
+	}
+	idx := byte(0)
+	for i, kbps := range []int{0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320} {
+		if kbps == bitrateKbps {
+			idx = byte(i)
+		}
+	}
+	frameLen := 144 * bitrateKbps * 1000 / 44100
+	for i := 0; i < frames; i++ {
+		f := make([]byte, frameLen)
+		f[0], f[1], f[2], f[3] = 0xFF, 0xFB, idx<<4, 0x00
+		if i == 0 && xingFrames > 0 {
+			copy(f[36:], "Xing")
+			binary.BigEndian.PutUint32(f[40:], 1) // flags: frames present
+			binary.BigEndian.PutUint32(f[44:], uint32(xingFrames))
+		}
+		out = append(out, f...)
+	}
+	return out
+}
+
+// FLACFile returns a synthetic FLAC file with only a STREAMINFO block.
+func FLACFile(rate int, samples int64) []byte {
+	out := []byte("fLaC")
+	out = append(out, 0x80, 0, 0, 34) // last block, STREAMINFO, length 34
+	body := make([]byte, 34)
+	// bytes 10..17: rate(20) channels-1(3) bps-1(5) samples(36)
+	v := uint64(rate)<<44 | uint64(1)<<41 | uint64(15)<<36 | uint64(samples)&(1<<36-1)
+	binary.BigEndian.PutUint64(body[10:], v)
+	return append(out, body...)
+}
