@@ -43,6 +43,20 @@ type fakeTelegram struct {
 	downloadParams tg.DownloadMediaParams
 	downloadResult *tg.DownloadMediaResult
 	downloadErr    error
+
+	sendFileCalled bool
+	sendFileParams tg.SendFileParams
+	sendFileResult *tg.SendFileResult
+	sendFileErr    error
+}
+
+func (f *fakeTelegram) SendFile(_ context.Context, p tg.SendFileParams) (*tg.SendFileResult, error) {
+	f.sendFileCalled = true
+	f.sendFileParams = p
+	if f.sendFileErr != nil {
+		return nil, f.sendFileErr
+	}
+	return f.sendFileResult, nil
 }
 
 func (f *fakeTelegram) DownloadMedia(_ context.Context, p tg.DownloadMediaParams) (*tg.DownloadMediaResult, error) {
@@ -161,7 +175,7 @@ func TestListTools(t *testing.T) {
 		readOnly := tool.Annotations != nil && tool.Annotations.ReadOnlyHint
 		got[tool.Name] = readOnly
 	}
-	want := map[string]bool{"list_chats": true, "read_chat": true, "send_message": false, "get_user": true, "list_participants": true, "download_media": true}
+	want := map[string]bool{"list_chats": true, "read_chat": true, "send_message": false, "get_user": true, "list_participants": true, "download_media": true, "send_file": false}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("tools = %v, want %v", got, want)
 	}
@@ -511,4 +525,91 @@ func TestListParticipants_BackendError(t *testing.T) {
 	cs := newSession(t, &fakeTelegram{partsErr: tg.ErrAdminsHidden})
 	res := callTool(t, cs, "list_participants", map[string]any{"chat_id": 5, "chat_type": "supergroup", "filter": "admins"})
 	expectToolError(t, res, "the group hides its admin list from members")
+}
+
+func TestSendFile_Passthrough(t *testing.T) {
+	fake := &fakeTelegram{sendFileResult: &tg.SendFileResult{ID: 42, Date: 500}}
+	cs := newSession(t, fake)
+
+	res := callTool(t, cs, "send_file", map[string]any{"chat_id": 7, "chat_type": "private", "path": "/x/a.ogg", "kind": "voice", "reply_to": 3})
+	if res.IsError {
+		t.Fatalf("IsError = true: %s", resultText(t, res))
+	}
+	want := tg.SendFileParams{ChatID: 7, ChatType: tg.ChatPrivate, Path: "/x/a.ogg", Kind: tg.KindVoice, ReplyTo: 3}
+	if fake.sendFileParams != want {
+		t.Fatalf("params = %+v, want %+v", fake.sendFileParams, want)
+	}
+	var got tg.SendFileResult
+	if err := json.Unmarshal([]byte(resultText(t, res)), &got); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+	if got != *fake.sendFileResult {
+		t.Fatalf("result = %+v, want %+v", got, *fake.sendFileResult)
+	}
+}
+
+func TestSendFile_Validation(t *testing.T) {
+	base := func() map[string]any {
+		return map[string]any{"chat_id": 7, "chat_type": "private", "path": "/x/a.mp4", "kind": "video"}
+	}
+	cases := []struct {
+		name string
+		mod  func(m map[string]any)
+		want string
+	}{
+		{"chat_id zero", func(m map[string]any) { m["chat_id"] = 0 }, "chat_id is required"},
+		{"bad chat_type", func(m map[string]any) { m["chat_type"] = "x" }, "chat_type must be one of"},
+		{"empty path", func(m map[string]any) { m["path"] = "" }, "path is required"},
+		{"relative path", func(m map[string]any) { m["path"] = "a.ogg" }, "path must be an absolute path"},
+		{"bad kind", func(m map[string]any) { m["kind"] = "gif" }, "kind must be one of photo, document, audio, voice, video, video_note"},
+		{"video_note caption", func(m map[string]any) { m["kind"] = "video_note"; m["caption"] = "hi" }, "video_note cannot have a caption"},
+		{"negative reply_to", func(m map[string]any) { m["reply_to"] = -1 }, "reply_to must not be negative"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			fake := &fakeTelegram{}
+			cs := newSession(t, fake)
+			m := base()
+			c.mod(m)
+			expectToolError(t, callTool(t, cs, "send_file", m), c.want)
+			if fake.sendFileCalled {
+				t.Fatal("SendFile was called despite invalid input")
+			}
+		})
+	}
+}
+
+func TestSendFile_WhitespaceCaptionVideoNote(t *testing.T) {
+	fake := &fakeTelegram{sendFileResult: &tg.SendFileResult{ID: 1, Date: 2}}
+	cs := newSession(t, fake)
+	res := callTool(t, cs, "send_file", map[string]any{"chat_id": 7, "chat_type": "private", "path": "/x/a.mp4", "kind": "video_note", "caption": "  "})
+	if res.IsError {
+		t.Fatalf("IsError = true: %s", resultText(t, res))
+	}
+	if fake.sendFileParams.Caption != "" {
+		t.Fatalf("Caption = %q, want empty", fake.sendFileParams.Caption)
+	}
+}
+
+func TestSendFile_BackendError(t *testing.T) {
+	cs := newSession(t, &fakeTelegram{sendFileErr: errors.New("boom")})
+	res := callTool(t, cs, "send_file", map[string]any{"chat_id": 7, "chat_type": "private", "path": "/x/a.jpg", "kind": "photo"})
+	expectToolError(t, res, "boom")
+}
+
+func TestNew_ListsSendFile(t *testing.T) {
+	cs := newSession(t, &fakeTelegram{})
+	res, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	for _, tool := range res.Tools {
+		if tool.Name == "send_file" {
+			if tool.Annotations != nil && tool.Annotations.ReadOnlyHint {
+				t.Fatal("send_file must not be read-only")
+			}
+			return
+		}
+	}
+	t.Fatal("send_file not listed")
 }
