@@ -74,6 +74,9 @@ func buildMedia(kind FileKind, r io.ReaderAt, size int64, name string) (mediaSpe
 		if err != nil || !okVideo || !okAudio {
 			return mediaSpec{}, fmt.Errorf("%s %s", kind, errVideoFmt)
 		}
+		if !(info.Duration > 0) {
+			return mediaSpec{}, fmt.Errorf("%s: cannot read duration; remux with: ffmpeg -i <in> -c copy -movflags +faststart out.mp4", kind)
+		}
 		attr := &tgapi.DocumentAttributeVideo{Duration: info.Duration, W: info.Width, H: info.Height}
 		if kind == KindVideo {
 			attr.SupportsStreaming = true

@@ -13,7 +13,7 @@ type MP4Info struct {
 	AudioCodec string  // sample entry fourcc of the first audio track, "" if none
 	Width      int     // displayed width of the video track, after rotation
 	Height     int     // displayed height of the video track, after rotation
-	Duration   float64 // seconds, from the movie header
+	Duration   float64 // seconds, from the movie header or mvex/mehd; 0 if unknown
 }
 
 var errMP4Truncated = errors.New("mp4: truncated box")
@@ -24,6 +24,8 @@ func MP4(r io.ReaderAt, size int64) (MP4Info, error) {
 	var info MP4Info
 	var sawFtyp, sawMoov bool
 	haveVideo, haveAudio := false, false
+	var timescale uint32
+	var fragDur uint64
 
 	err := walkBoxes(r, 0, size, size, func(typ string, bs, be int64, truncated bool) error {
 		switch typ {
@@ -40,11 +42,20 @@ func MP4(r io.ReaderAt, size int64) (MP4Info, error) {
 				}
 				switch typ {
 				case "mvhd":
-					d, err := parseMvhd(r, bs, be, size)
+					ts, dur, err := parseMvhd(r, bs, be, size)
 					if err != nil {
 						return err
 					}
-					info.Duration = d
+					timescale = ts
+					if ts != 0 {
+						info.Duration = float64(dur) / float64(ts)
+					}
+				case "mvex":
+					return walkPath(r, bs, be, size, []string{"mehd"}, func(bs, be int64) error {
+						d, err := parseMehd(r, bs, be, size)
+						fragDur = d
+						return err
+					})
 				case "trak":
 					t, err := parseTrak(r, bs, be, size)
 					if err != nil {
@@ -74,6 +85,11 @@ func MP4(r io.ReaderAt, size int64) (MP4Info, error) {
 	if !sawFtyp || !sawMoov {
 		return MP4Info{}, ErrUnknownFormat
 	}
+	// Fragmented files (screen recorders, ffmpeg -movflags frag_keyframe)
+	// write 0 in mvhd and keep the total in mvex/mehd.
+	if info.Duration == 0 && timescale != 0 && fragDur != 0 {
+		info.Duration = float64(fragDur) / float64(timescale)
+	}
 	return info, nil
 }
 
@@ -82,31 +98,49 @@ type mp4Track struct {
 	w, h           int
 }
 
-func parseMvhd(r io.ReaderAt, bs, be, size int64) (float64, error) {
+func parseMvhd(r io.ReaderAt, bs, be, size int64) (timescale uint32, dur uint64, err error) {
 	var b [32]byte
 	n := int(min64(int64(len(b)), be-bs))
 	if n < 20 {
-		return 0, fmt.Errorf("mp4: short mvhd")
+		return 0, 0, fmt.Errorf("mp4: short mvhd")
 	}
 	if err := readFull(r, b[:n], bs, size); err != nil {
-		return 0, fmt.Errorf("mp4: mvhd: %w", err)
+		return 0, 0, fmt.Errorf("mp4: mvhd: %w", err)
 	}
-	var timescale uint32
-	var dur uint64
 	if b[0] == 1 {
 		if n < 32 {
-			return 0, fmt.Errorf("mp4: short mvhd")
+			return 0, 0, fmt.Errorf("mp4: short mvhd")
 		}
-		timescale = binary.BigEndian.Uint32(b[20:24])
-		dur = binary.BigEndian.Uint64(b[24:32])
-	} else {
-		timescale = binary.BigEndian.Uint32(b[12:16])
-		dur = uint64(binary.BigEndian.Uint32(b[16:20]))
+		return binary.BigEndian.Uint32(b[20:24]), binary.BigEndian.Uint64(b[24:32]), nil
 	}
-	if timescale == 0 {
-		return 0, nil
+	return binary.BigEndian.Uint32(b[12:16]), uint64(binary.BigEndian.Uint32(b[16:20])), nil
+}
+
+// parseMehd returns fragment_duration in movie timescale units.
+func parseMehd(r io.ReaderAt, bs, be, size int64) (uint64, error) {
+	var b [12]byte
+	if be-bs < 1 {
+		return 0, fmt.Errorf("mp4: short mehd")
 	}
-	return float64(dur) / float64(timescale), nil
+	if err := readFull(r, b[:1], bs, size); err != nil {
+		return 0, fmt.Errorf("mp4: mehd: %w", err)
+	}
+	if b[0] == 1 {
+		if be-bs < 12 {
+			return 0, fmt.Errorf("mp4: short mehd")
+		}
+		if err := readFull(r, b[:12], bs, size); err != nil {
+			return 0, fmt.Errorf("mp4: mehd: %w", err)
+		}
+		return binary.BigEndian.Uint64(b[4:12]), nil
+	}
+	if be-bs < 8 {
+		return 0, fmt.Errorf("mp4: short mehd")
+	}
+	if err := readFull(r, b[:8], bs, size); err != nil {
+		return 0, fmt.Errorf("mp4: mehd: %w", err)
+	}
+	return uint64(binary.BigEndian.Uint32(b[4:8])), nil
 }
 
 func parseTrak(r io.ReaderAt, bs, be, size int64) (mp4Track, error) {

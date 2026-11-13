@@ -56,7 +56,9 @@ func (d SendDirs) contains(resolved string) bool {
 // later step so the file cannot be swapped after the check. A missing file
 // returns ErrOutsideSendDirs, the same as an outside path.
 func (d SendDirs) Open(path string) (*os.File, string, error) {
-	resolved, err := filepath.EvalSymlinks(path)
+	// Clean first: EvalSymlinks checks each component before applying "..",
+	// so an uncleaned path would show whether an outside folder exists.
+	resolved, err := filepath.EvalSymlinks(filepath.Clean(path))
 	if err != nil {
 		return nil, "", ErrOutsideSendDirs
 	}
@@ -75,7 +77,10 @@ func (d SendDirs) Open(path string) (*os.File, string, error) {
 	if err != nil {
 		return nil, "", ErrOutsideSendDirs
 	}
-	// The open handle is the authority: it must be the same regular file.
+	// The open handle must be the same regular file that was checked, so the
+	// final component cannot be swapped between check and open. A local writer
+	// who replaces a middle directory with a symlink after EvalSymlinks is not
+	// caught. That is outside the threat model (prompt injection).
 	fi, err := f.Stat()
 	if err != nil || !fi.Mode().IsRegular() || !os.SameFile(li, fi) {
 		f.Close()

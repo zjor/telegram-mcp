@@ -71,6 +71,12 @@ func TestBuildMedia(t *testing.T) {
 		{name: "note not square", kind: KindVideoNote, data: mp4v(640, 480, "avc1", false), fname: "m.mp4", err: cropMsg},
 		{name: "note 61s", kind: KindVideoNote, data: probetest.MP4File(false, 1000, 61000, probetest.MP4Track{Handler: "vide", Codec: "avc1", W: 384, H: 384}), fname: "m.mp4",
 			err: "video_note is 61 s, limit is 60 s"},
+		{name: "note fragmented 90s", kind: KindVideoNote, data: probetest.MP4FileFragmented(1000, 90000, true, probetest.MP4Track{Handler: "vide", Codec: "avc1", W: 384, H: 384}), fname: "m.mp4",
+			err: "video_note is 90 s, limit is 60 s"},
+		{name: "video duration 0", kind: KindVideo, data: probetest.MP4FileFragmented(1000, 0, false, probetest.MP4Track{Handler: "vide", Codec: "avc1", W: 384, H: 384}), fname: "m.mp4",
+			err: "video: cannot read duration; remux with: ffmpeg -i <in> -c copy -movflags +faststart out.mp4"},
+		{name: "note duration 0", kind: KindVideoNote, data: probetest.MP4FileFragmented(1000, 0, false, probetest.MP4Track{Handler: "vide", Codec: "avc1", W: 384, H: 384}), fname: "m.mp4",
+			err: "video_note: cannot read duration; remux with: ffmpeg -i <in> -c copy -movflags +faststart out.mp4"},
 		{name: "note 60.4s", kind: KindVideoNote, data: probetest.MP4File(false, 1000, 60400, probetest.MP4Track{Handler: "vide", Codec: "avc1", W: 384, H: 384}), fname: "m.mp4",
 			want: mediaSpec{MimeType: "video/mp4", Attributes: []tgapi.DocumentAttributeClass{
 				&tgapi.DocumentAttributeVideo{RoundMessage: true, Duration: 60.4, W: 384, H: 384}}}},

@@ -56,6 +56,24 @@ type MP4Track struct {
 // is true, mdat comes before moov. The mvhd box uses the given timescale and
 // duration.
 func MP4File(moovLast bool, timescale, duration uint32, tracks ...MP4Track) []byte {
+	return mp4File(moovLast, timescale, duration, nil, tracks)
+}
+
+// MP4FileFragmented returns an MP4 file like one from a screen recorder: the
+// mvhd duration is 0. If withMehd is true, moov holds mvex/mehd with the given
+// fragment duration in timescale units. Otherwise moov has no mehd.
+func MP4FileFragmented(timescale, fragDuration uint32, withMehd bool, tracks ...MP4Track) []byte {
+	var mvex []byte
+	if withMehd {
+		mehd := binary.BigEndian.AppendUint32(make([]byte, 4), fragDuration) // version 0, flags 0
+		mvex = mp4Box("mvex", mp4Box("mehd", mehd))
+	} else {
+		mvex = mp4Box("mvex", mp4Box("trex", make([]byte, 24)))
+	}
+	return mp4File(false, timescale, 0, mvex, tracks)
+}
+
+func mp4File(moovLast bool, timescale, duration uint32, extra []byte, tracks []MP4Track) []byte {
 	mvhd := make([]byte, 100)
 	binary.BigEndian.PutUint32(mvhd[12:], timescale)
 	binary.BigEndian.PutUint32(mvhd[16:], duration)
@@ -63,6 +81,7 @@ func MP4File(moovLast bool, timescale, duration uint32, tracks ...MP4Track) []by
 	for _, t := range tracks {
 		moovBody = append(moovBody, mp4Trak(t)...)
 	}
+	moovBody = append(moovBody, extra...)
 	ftyp := mp4Box("ftyp", append([]byte("isom\x00\x00\x02\x00"), "isom"...))
 	moov := mp4Box("moov", moovBody)
 	mdat := mp4Box("mdat", []byte{1, 2, 3, 4})

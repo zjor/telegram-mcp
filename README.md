@@ -216,6 +216,7 @@ Errors:
 - `<kind> needs MP4 with H.264; convert with: ffmpeg -i <in> -c:v libx264 -c:a aac out.mp4`, for `video` and `video_note`.
 - `video_note must be square, got WxH; crop with: ffmpeg -i in.mp4 -vf "crop='min(iw,ih)':'min(iw,ih)',scale=384:384" -c:v libx264 -c:a aac out.mp4`
 - `video_note is N s, limit is 60 s`
+- `<kind>: cannot read duration; remux with: ffmpeg -i <in> -c copy -movflags +faststart out.mp4`, for `video` and `video_note`, when the MP4 has no duration (fragmented files from some screen recorders).
 
 The path and format checks run before any Telegram call. The chat must be one of your own dialogs, as for `send_message`.
 

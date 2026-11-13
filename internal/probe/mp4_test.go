@@ -112,3 +112,27 @@ func TestMP4_BadBoxSizes(t *testing.T) {
 		t.Error("want error for huge box")
 	}
 }
+
+func TestMP4_FragmentedMehd(t *testing.T) {
+	b := probetest.MP4FileFragmented(1000, 90000, true,
+		probetest.MP4Track{Handler: "vide", Codec: "avc1", W: 384, H: 384})
+	got, err := probeMP4(t, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Duration != 90 {
+		t.Errorf("Duration = %v, want 90", got.Duration)
+	}
+}
+
+func TestMP4_FragmentedNoMehd(t *testing.T) {
+	b := probetest.MP4FileFragmented(1000, 0, false,
+		probetest.MP4Track{Handler: "vide", Codec: "avc1", W: 384, H: 384})
+	got, err := probeMP4(t, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Duration != 0 || got.VideoCodec != "avc1" {
+		t.Errorf("got %+v, want Duration 0", got)
+	}
+}

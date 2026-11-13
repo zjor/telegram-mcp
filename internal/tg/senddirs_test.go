@@ -67,6 +67,24 @@ func TestSendDirs_DotDot(t *testing.T) {
 	}
 }
 
+func TestSendDirs_DotDotNoExistenceLeak(t *testing.T) {
+	root, allowed, _ := sdSetup(t) // root/other exists, root/nodir does not
+	d := NewSendDirs([]string{allowed}, nil)
+	var results []string
+	for _, dir := range []string{"other", "nodir"} {
+		f, resolved, err := d.Open(allowed + "/../" + dir + "/../allowed/a.txt")
+		if err != nil {
+			t.Fatalf("%s: %v", dir, err)
+		}
+		f.Close()
+		results = append(results, resolved)
+	}
+	if results[0] != results[1] {
+		t.Errorf("results differ: %v", results)
+	}
+	_ = root
+}
+
 func TestSendDirs_SymlinkOut(t *testing.T) {
 	_, allowed, other := sdSetup(t)
 	link := filepath.Join(allowed, "link")
