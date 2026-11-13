@@ -49,7 +49,7 @@ func (s *Service) ListParticipants(ctx context.Context, p ListParticipantsParams
 		if cur.Source != SourceMembers {
 			cur = participantsCursor{}
 		}
-		return s.channelMembers(ctx, peer, p, cur.Offset, fc.ParticipantsCount)
+		return s.channelMembers(ctx, peer, p, cur.Offset, &fc.ParticipantsCount)
 	case *tgapi.ChatFull:
 		list, ok := fc.Participants.(*tgapi.ChatParticipants)
 		if !ok {
@@ -104,7 +104,9 @@ func wrapAccessErr(method string, err error) error {
 	return fmt.Errorf("%s: %w", method, err)
 }
 
-func (s *Service) channelMembers(ctx context.Context, peer tgapi.InputPeerClass, p ListParticipantsParams, offset, total int) (*ListParticipantsResult, error) {
+// channelMembers lists one page of a supergroup. total nil means "use the
+// count from the getParticipants response".
+func (s *Service) channelMembers(ctx context.Context, peer tgapi.InputPeerClass, p ListParticipantsParams, offset int, total *int) (*ListParticipantsResult, error) {
 	var filter tgapi.ChannelParticipantsFilterClass
 	localQuery := p.Query
 	switch {
@@ -139,7 +141,10 @@ func (s *Service) channelMembers(ctx context.Context, peer tgapi.InputPeerClass,
 		out = append(out, part)
 	}
 
-	res := &ListParticipantsResult{Source: SourceMembers, Participants: out, Total: &total}
+	if total == nil {
+		total = &resp.Count
+	}
+	res := &ListParticipantsResult{Source: SourceMembers, Participants: out, Total: total}
 	if len(resp.Participants) == p.Limit {
 		next := encodeParticipantsCursor(participantsCursor{ChatID: p.ChatID, Source: SourceMembers, Offset: offset + len(resp.Participants)})
 		res.NextCursor = &next
@@ -267,9 +272,4 @@ func matchesQuery(u *tgapi.User, q string) bool {
 		}
 	}
 	return false
-}
-
-// hiddenList is replaced by the recent-senders fallback in Task 3.
-func (s *Service) hiddenList(_ context.Context, _ tgapi.InputPeerClass, _ ListParticipantsParams, _ participantsCursor) (*ListParticipantsResult, error) {
-	return nil, errors.New("recent senders: not implemented")
 }
