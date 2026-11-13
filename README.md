@@ -1,9 +1,11 @@
 | `TELEGRAM_MCP_DEBUG` | no | Set to `1` to log every Telegram call (method, duration, result or error) and gotd connection events to stderr. Payloads are not logged. |
 # telegram-mcp
 
-An MCP server for Telegram. It runs as your own user account over MTProto, not as a bot. It has four tools: `list_chats`, `read_chat`, `send_message` and `get_user`. It cannot edit or delete anything.
+An MCP server for Telegram. It runs as your own user account over MTProto, not as a bot. It has five tools: `list_chats`, `read_chat`, `send_message`, `get_user` and `list_participants`. It cannot edit or delete anything.
 
 `get_user` returns the profile details of one user, found by `user_id` or `username`. Phone number and birthday appear only when Telegram shows them to you.
+
+`list_participants` lists the members of a group or supergroup. It works as a regular member. If the group hides its member list, it returns recent message senders instead.
 
 ## Requirements
 
@@ -166,6 +168,37 @@ Markdown is CommonMark, parsed leniently: an unmatched marker is sent as plain t
 Underline has no Markdown syntax and is not supported.
 
 The chat must be one of your own dialogs. An id that is not in your chat list fails with the same `list_chats` error as `read_chat`, so a message cannot go to an unknown chat.
+
+### `list_participants`
+
+List the members of a group or supergroup. Broadcast channels are not supported.
+
+Input:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `chat_id` | int64, required | `id` from `list_chats`. |
+| `chat_type` | string, required | `group` or `supergroup`. Other types fail with `list_participants supports group and supergroup only`. |
+| `query` | string, optional | Match by first name, last name or username. |
+| `filter` | string, optional | `all` (default), `admins` or `bots`. |
+| `limit` | int, optional | Page size 1-100. Default 50. |
+| `cursor` | string, optional | `next_cursor` from the previous call. |
+
+Output:
+
+| Field | Notes |
+| --- | --- |
+| `source` | `members`: the real member list. `recent_senders`: the group hides its members, so these are people who posted recently. This list is partial. |
+| `participants` | `id`, `first_name`, `last_name`, `username`, `bot`, `deleted`. With `members`: `role` (`creator`, `admin`, `member`) and `joined_at`. With `recent_senders`: `last_message_date`. |
+| `total` | Member count from Telegram. `null` for `recent_senders`. |
+| `next_cursor` | `null` on the last page. |
+
+Limits:
+
+- Telegram lets admins hide the member list. Many large public groups do this. Then you get `recent_senders`. One call scans at most 1000 messages.
+- With `recent_senders`, a person can appear again on a later page. Remove duplicates by `id`.
+- `filter=admins` returns the real admin list when Telegram allows it. Otherwise it fails with `the group hides its admin list from members`.
+- `get_user` works on most returned ids. It can fail for some senders in large groups, because Telegram gives no access data for them.
 
 ### Paging example
 
