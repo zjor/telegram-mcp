@@ -72,6 +72,18 @@ type SendMessageParams struct {
 	ReplyTo  int    // message id to reply to; 0 for none
 }
 
+type SendFileParams struct {
+	ChatID   int64
+	ChatType ChatType
+	Path     string
+	Kind     FileKind
+	Caption  string // Markdown; "" for none
+	ReplyTo  int    // message id to reply to; 0 for none
+}
+
+// SendFileResult has the same JSON shape as SendMessageResult.
+type SendFileResult = SendMessageResult
+
 type SendMessageResult struct {
 	ID   int   `json:"id"`
 	Date int64 `json:"date"`
