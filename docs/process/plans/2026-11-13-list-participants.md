@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go 1.25, `github.com/gotd/td` v0.163.0 (`tg`, `tgerr`, `tgmock`), `github.com/modelcontextprotocol/go-sdk` v1.8.0.
 
-**Spec:** `docs/superpowers/specs/2026-11-13-list-participants-design.md`
+**Spec:** `docs/process/specs/2026-11-13-list-participants-design.md`
 
 ## Global Constraints
 

@@ -282,3 +282,14 @@ Run these checks yourself after the first setup.
 - [ ] `ls -l ~/.config/telegram-mcp/peers.json` shows `-rw-------`.
 - [ ] `TELEGRAM_API_ID=1 TELEGRAM_API_HASH=x TELEGRAM_SESSION_PATH=/tmp/none.json ./telegram-mcp serve` exits with code 3 and prints the `run "telegram-mcp login" first` hint.
 - [ ] `./telegram-mcp logout` prints `Logged out` and removes both `session.json` and `peers.json`.
+
+## Docs
+
+| Path | What it holds |
+| --- | --- |
+| `docs/process/conventions.md` | How work is done in this repo, for example one git worktree per feature. |
+| `docs/roadmap.md` | Work that is agreed but not started. An item gets a design spec when work begins. |
+| `docs/process/specs/` | Design specs, one per feature: `YYYY-MM-DD-<topic>-design.md`. A spec is the authority for what a feature must do. |
+| `docs/process/plans/` | Implementation plans made from a spec: `YYYY-MM-DD-<topic>.md`. |
+
+`CLAUDE.md` loads the process conventions for Claude Code sessions.

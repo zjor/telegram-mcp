@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go 1.25, `github.com/modelcontextprotocol/go-sdk v1.8.0`, `github.com/gotd/td v0.163.0`, `github.com/gotd/contrib v0.25.0` (flood-wait middleware), `golang.org/x/term` (password prompt). Tests use stdlib `testing`, `tgmock`, and the go-sdk in-memory transport.
 
-**Spec:** `docs/superpowers/specs/2026-10-31-telegram-mcp-design.md`
+**Spec:** `docs/process/specs/2026-10-31-telegram-mcp-design.md`
 
 ## Global Constraints
 

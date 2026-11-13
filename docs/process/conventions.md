@@ -1,5 +1,18 @@
 # Process conventions
 
+## Where design docs go
+
+- Design specs: `docs/process/specs/YYYY-MM-DD-<topic>-design.md`
+- Implementation plans: `docs/process/plans/YYYY-MM-DD-<topic>.md`
+
+This overrides the default `docs/superpowers/specs/` and
+`docs/superpowers/plans/` locations used by the superpowers skills. Do not
+create `docs/superpowers/`.
+
+Agreed work that is not started goes in `docs/roadmap.md`. When an item
+starts, its spec goes in `docs/process/specs/` and the roadmap entry is
+updated or removed.
+
 ## Develop every new feature in a git worktree
 
 Never switch branches in the main checkout to start a feature. Several
