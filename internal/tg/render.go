@@ -141,10 +141,11 @@ func RenderMessage(mc tgapi.MessageClass, names *Names, peerTitle string) (Messa
 	switch m := mc.(type) {
 	case *tgapi.Message:
 		return Message{
-			ID:   m.ID,
-			Date: int64(m.Date),
-			From: sender(m.Out, m.FromID, m.PostAuthor, names, peerTitle),
-			Text: RenderText(m),
+			ID:      m.ID,
+			Date:    int64(m.Date),
+			From:    sender(m.Out, m.FromID, m.PostAuthor, names, peerTitle),
+			Text:    RenderText(m),
+			ReplyTo: replyToID(m),
 		}, true
 	case *tgapi.MessageService:
 		return Message{
@@ -167,4 +168,28 @@ func sender(out bool, from tgapi.PeerClass, postAuthor string, names *Names, pee
 		return postAuthor
 	}
 	return peerTitle
+}
+
+// replyToID returns the id of the message m replies to, or 0. It is 0 when
+// the reply points to another chat, because the id is then not in this
+// chat's history. In a forum, a message that only belongs to a topic has a
+// reply header with forum_topic set and no reply_to_top_id; that is not a
+// reply, so it is 0 too.
+func replyToID(m *tgapi.Message) int {
+	h, ok := m.GetReplyTo()
+	if !ok {
+		return 0
+	}
+	r, ok := h.(*tgapi.MessageReplyHeader)
+	if !ok {
+		return 0
+	}
+	if _, ok := r.GetReplyToPeerID(); ok {
+		return 0
+	}
+	if _, ok := r.GetReplyToTopID(); r.ForumTopic && !ok {
+		return 0
+	}
+	id, _ := r.GetReplyToMsgID()
+	return id
 }

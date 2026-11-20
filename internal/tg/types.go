@@ -35,10 +35,11 @@ type Chat struct {
 }
 
 type Message struct {
-	ID   int    `json:"id"`
-	Date int64  `json:"date"`
-	From string `json:"from"`
-	Text string `json:"text"`
+	ID      int    `json:"id"`
+	Date    int64  `json:"date"`
+	From    string `json:"from"`
+	Text    string `json:"text"`
+	ReplyTo int    `json:"reply_to,omitempty"`
 }
 
 type ListChatsParams struct {
@@ -66,10 +67,11 @@ type ReadChatResult struct {
 }
 
 type SendMessageParams struct {
-	ChatID   int64
-	ChatType ChatType
-	Text     string // Markdown
-	ReplyTo  int    // message id to reply to; 0 for none
+	ChatID       int64
+	ChatType     ChatType
+	Text         string // Markdown
+	ReplyTo      int    // message id to reply to; 0 for none
+	ScheduleDate int64  // unix seconds; 0 sends now, otherwise Telegram holds it as a scheduled message
 }
 
 type SendFileParams struct {
@@ -84,9 +86,14 @@ type SendFileParams struct {
 // SendFileResult has the same JSON shape as SendMessageResult.
 type SendFileResult = SendMessageResult
 
+// SendMessageResult is the sent message. For a scheduled message, ID is a
+// scheduled-message id: read_chat does not show it and reply_to cannot use
+// it, because Telegram gives the message a new id when it is sent. ID is
+// omitted if Telegram did not return it.
 type SendMessageResult struct {
-	ID   int   `json:"id"`
-	Date int64 `json:"date"`
+	ID        int   `json:"id,omitempty"`
+	Date      int64 `json:"date"`
+	Scheduled bool  `json:"scheduled,omitempty"`
 }
 
 type DownloadMediaParams struct {
@@ -96,8 +103,8 @@ type DownloadMediaParams struct {
 }
 
 type DownloadMediaResult struct {
-	Path     string `json:"path"`                // absolute
-	Kind     string `json:"kind"`                // voice, audio, video, video_note, photo, document, sticker, gif
+	Path     string `json:"path"` // absolute
+	Kind     string `json:"kind"` // voice, audio, video, video_note, photo, document, sticker, gif
 	MimeType string `json:"mime_type"`
 	Size     int64  `json:"size"`                // bytes on disk
 	FileName string `json:"file_name,omitempty"` // original name, if the document has one

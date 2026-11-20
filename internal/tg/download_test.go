@@ -9,9 +9,9 @@ import (
 	"testing"
 
 	"github.com/gotd/td/bin"
+	tgapi "github.com/gotd/td/tg"
 	"github.com/gotd/td/tgerr"
 	"github.com/gotd/td/tgmock"
-	tgapi "github.com/gotd/td/tg"
 )
 
 func voiceMessage(id int, size int64) *tgapi.Message {

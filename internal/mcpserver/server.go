@@ -6,6 +6,7 @@ import (
 	"errors"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -56,10 +57,11 @@ type ReadChatInput struct {
 }
 
 type SendMessageInput struct {
-	ChatID   int64  `json:"chat_id"            jsonschema:"id from list_chats"`
-	ChatType string `json:"chat_type"          jsonschema:"private, group, supergroup or channel"`
-	Text     string `json:"text"               jsonschema:"message text in Markdown"`
-	ReplyTo  int    `json:"reply_to,omitempty" jsonschema:"id of the message to reply to"`
+	ChatID       int64  `json:"chat_id"            jsonschema:"id from list_chats"`
+	ChatType     string `json:"chat_type"          jsonschema:"private, group, supergroup or channel"`
+	Text         string `json:"text"               jsonschema:"message text in Markdown"`
+	ReplyTo      int    `json:"reply_to,omitempty" jsonschema:"id of the message to reply to"`
+	ScheduleDate int64  `json:"schedule_date,omitempty" jsonschema:"optional unix seconds, in the future and at most 365 days ahead; Telegram sends the message then"`
 }
 
 type ListParticipantsInput struct {
@@ -77,13 +79,13 @@ type GetUserInput struct {
 }
 
 const (
-	sendFileDescription = "Send a local file to a chat as yourself. kind is photo, document, audio, voice, video or video_note. Pass chat_id and chat_type from list_chats. The path must be inside a folder allowed by TELEGRAM_MCP_SEND_DIRS. voice needs an OGG/Opus file. video needs an MP4 (H.264). video_note needs a square MP4 (H.264) of at most 60 s. The server does not convert files."
+	sendFileDescription         = "Send a local file to a chat as yourself. kind is photo, document, audio, voice, video or video_note. Pass chat_id and chat_type from list_chats. The path must be inside a folder allowed by TELEGRAM_MCP_SEND_DIRS. voice needs an OGG/Opus file. video needs an MP4 (H.264). video_note needs a square MP4 (H.264) of at most 60 s. The server does not convert files."
 	downloadMediaDescription    = "Download the attachment of one message (voice, audio, video, photo, document, sticker) to a local file and return its path. Pass chat_id and chat_type from list_chats and message_id from read_chat. The file content is not returned."
-	getUserDescription         = "Get all profile details Telegram shows for one user: name, username, phone, bio, birthday, status, relation to you, account flags, business info. Pass user_id (chat_id of a private chat from list_chats) or username. Fields Telegram hides are omitted."
-	sendMessageDescription      = "Send a text message to one chat as the logged-in user. Text is Markdown: **bold**, *italic*, ~~strikethrough~~, ||spoiler||, `code`, ```fenced code```, [link](url), > quote. Unmatched markers are sent as plain text. Pass reply_to to reply to a message id from read_chat."
+	getUserDescription          = "Get all profile details Telegram shows for one user: name, username, phone, bio, birthday, status, relation to you, account flags, business info. Pass user_id (chat_id of a private chat from list_chats) or username. Fields Telegram hides are omitted."
+	sendMessageDescription      = "Send a text message to one chat as the logged-in user. Text is Markdown: **bold**, *italic*, ~~strikethrough~~, ||spoiler||, `code`, ```fenced code```, [link](url), > quote. Unmatched markers are sent as plain text. Pass reply_to to reply to a message id from read_chat. Pass schedule_date (unix seconds) to schedule the message; the result then has scheduled=true, and its id is a scheduled-message id that read_chat does not show and reply_to cannot use."
 	listChatsDescription        = "List the user's Telegram chats (private chats, groups, supergroups, channels), newest activity first. Use the returned cursor to fetch the next page. Pass folder=archive to list archived chats."
 	listParticipantsDescription = "List members of a group or supergroup. Pass chat_id and chat_type from list_chats. If the group hides its member list, returns recent message senders instead and sets source=recent_senders; that list is partial. Senders may repeat across pages; deduplicate by id. Use the returned cursor for the next page. Use get_user for full profiles."
-	readChatDescription         = "Read plain-text message history of one chat, newest first. Pass before_id=next_before_id from the previous call to page backwards; stop when next_before_id is null."
+	readChatDescription         = "Read plain-text message history of one chat, newest first. Pass before_id=next_before_id from the previous call to page backwards; stop when next_before_id is null. A message that replies to another message in the same chat has reply_to set to that message's id."
 )
 
 // New builds an MCP server with the list_chats, read_chat, send_message,
@@ -207,17 +209,43 @@ func sendMessageHandler(t Telegram) mcp.ToolHandlerFor[SendMessageInput, *tg.Sen
 		if strings.TrimSpace(in.Text) == "" {
 			return nil, nil, errors.New("text is required")
 		}
+		if err := checkScheduleDate(in.ScheduleDate, now()); err != nil {
+			return nil, nil, err
+		}
 		res, err := t.SendMessage(ctx, tg.SendMessageParams{
-			ChatID:   in.ChatID,
-			ChatType: chatType,
-			Text:     in.Text,
-			ReplyTo:  in.ReplyTo,
+			ChatID:       in.ChatID,
+			ChatType:     chatType,
+			Text:         in.Text,
+			ReplyTo:      in.ReplyTo,
+			ScheduleDate: in.ScheduleDate,
 		})
 		if err != nil {
 			return nil, nil, err
 		}
 		return nil, res, nil
 	}
+}
+
+// maxSchedule is how far ahead Telegram accepts a scheduled message.
+const maxSchedule = 365 * 24 * time.Hour
+
+// now is the clock for schedule_date checks; tests replace it.
+var now = time.Now
+
+// checkScheduleDate accepts 0 (send now) or a time after t and at most
+// maxSchedule ahead of it.
+func checkScheduleDate(sd int64, t time.Time) error {
+	switch {
+	case sd == 0:
+		return nil
+	case sd < 0:
+		return errors.New("schedule_date must not be negative")
+	case sd <= t.Unix():
+		return errors.New("schedule_date must be in the future")
+	case sd > t.Add(maxSchedule).Unix():
+		return errors.New("schedule_date must be at most 365 days ahead")
+	}
+	return nil
 }
 
 func getUserHandler(t Telegram) mcp.ToolHandlerFor[GetUserInput, *tg.UserInfo] {

@@ -170,3 +170,57 @@ func TestNames_PeerName_IDCollision(t *testing.T) {
 		t.Errorf("PeerChannel: got %q, want News", got)
 	}
 }
+
+func TestReplyToID(t *testing.T) {
+	header := func(set func(h *tgapi.MessageReplyHeader)) *tgapi.Message {
+		h := &tgapi.MessageReplyHeader{}
+		set(h)
+		m := &tgapi.Message{ID: 2}
+		m.SetReplyTo(h)
+		return m
+	}
+	tests := []struct {
+		name string
+		m    *tgapi.Message
+		want int
+	}{
+		{"not a reply", &tgapi.Message{ID: 1}, 0},
+		{"reply", header(func(h *tgapi.MessageReplyHeader) { h.SetReplyToMsgID(42) }), 42},
+		{"reply to other chat", header(func(h *tgapi.MessageReplyHeader) {
+			h.SetReplyToMsgID(42)
+			h.SetReplyToPeerID(&tgapi.PeerChannel{ChannelID: 9})
+		}), 0},
+		{"forum topic only", header(func(h *tgapi.MessageReplyHeader) {
+			h.ForumTopic = true
+			h.SetReplyToMsgID(100)
+		}), 0},
+		{"reply inside forum topic", header(func(h *tgapi.MessageReplyHeader) {
+			h.ForumTopic = true
+			h.SetReplyToMsgID(42)
+			h.SetReplyToTopID(100)
+		}), 42},
+		{"story reply", func() *tgapi.Message {
+			m := &tgapi.Message{ID: 3}
+			m.SetReplyTo(&tgapi.MessageReplyStoryHeader{StoryID: 5})
+			return m
+		}(), 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := replyToID(tt.m); got != tt.want {
+				t.Errorf("replyToID = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRenderMessage_ReplyTo(t *testing.T) {
+	h := &tgapi.MessageReplyHeader{}
+	h.SetReplyToMsgID(42)
+	m := &tgapi.Message{ID: 2, Message: "x"}
+	m.SetReplyTo(h)
+	got, ok := RenderMessage(m, NewNames(nil, nil), "Chan")
+	if !ok || got.ReplyTo != 42 {
+		t.Fatalf("got %+v ok %v, want ReplyTo 42", got, ok)
+	}
+}

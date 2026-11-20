@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -343,6 +344,58 @@ func TestSendMessage_Validation(t *testing.T) {
 
 	if fake.sendCalled {
 		t.Fatal("SendMessage was called despite invalid input")
+	}
+}
+
+func TestSendMessage_Scheduled(t *testing.T) {
+	t0 := time.Unix(1000, 0)
+	now = func() time.Time { return t0 }
+	t.Cleanup(func() { now = time.Now })
+
+	fake := &fakeTelegram{sendResult: &tg.SendMessageResult{ID: 3, Date: 2000, Scheduled: true}}
+	cs := newSession(t, fake)
+
+	res := callTool(t, cs, "send_message", map[string]any{"chat_id": 7, "chat_type": "private", "text": "hi", "schedule_date": 2000})
+	if res.IsError {
+		t.Fatalf("IsError = true: %s", resultText(t, res))
+	}
+	want := tg.SendMessageParams{ChatID: 7, ChatType: tg.ChatPrivate, Text: "hi", ScheduleDate: 2000}
+	if fake.sendParams != want {
+		t.Fatalf("params = %+v, want %+v", fake.sendParams, want)
+	}
+	if txt := resultText(t, res); !strings.Contains(txt, `"scheduled":true`) {
+		t.Fatalf("text %q does not contain scheduled true", txt)
+	}
+}
+
+func TestSendMessage_ScheduleDateValidation(t *testing.T) {
+	t0 := time.Unix(1000, 0)
+	now = func() time.Time { return t0 }
+	t.Cleanup(func() { now = time.Now })
+
+	fake := &fakeTelegram{}
+	cs := newSession(t, fake)
+	maxAhead := t0.Add(maxSchedule).Unix()
+
+	for _, tc := range []struct {
+		sd   int64
+		want string
+	}{
+		{-1, "schedule_date must not be negative"},
+		{999, "schedule_date must be in the future"},
+		{1000, "schedule_date must be in the future"},
+		{maxAhead + 1, "schedule_date must be at most 365 days ahead"},
+	} {
+		res := callTool(t, cs, "send_message", map[string]any{"chat_id": 7, "chat_type": "private", "text": "hi", "schedule_date": tc.sd})
+		expectToolError(t, res, tc.want)
+	}
+	if fake.sendCalled {
+		t.Fatal("SendMessage was called despite invalid schedule_date")
+	}
+
+	res := callTool(t, cs, "send_message", map[string]any{"chat_id": 7, "chat_type": "private", "text": "hi", "schedule_date": maxAhead})
+	if res.IsError {
+		t.Fatalf("schedule_date at the limit: IsError = true: %s", resultText(t, res))
 	}
 }
 

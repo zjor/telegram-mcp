@@ -37,6 +37,20 @@ func (s *Service) SendMessage(ctx context.Context, p SendMessageParams) (*SendMe
 		req.SetReplyTo(&tgapi.InputReplyToMessage{ReplyToMsgID: p.ReplyTo})
 	}
 
+	if p.ScheduleDate != 0 {
+		req.SetScheduleDate(int(p.ScheduleDate))
+		upd, err := s.api.MessagesSendMessage(ctx, req)
+		if err != nil {
+			return nil, fmt.Errorf("messages.sendMessage: %w", err)
+		}
+		if m := scheduledMessage(upd); m != nil {
+			return &SendMessageResult{ID: m.ID, Date: int64(m.Date), Scheduled: true}, nil
+		}
+		// Telegram accepted the message but the reply has no copy of it.
+		// Do not fail: a retry would schedule it twice. Leave id out.
+		return &SendMessageResult{Date: p.ScheduleDate, Scheduled: true}, nil
+	}
+
 	msg, err := unpack.Message(s.api.MessagesSendMessage(ctx, req))
 	if err != nil {
 		return nil, fmt.Errorf("messages.sendMessage: %w", err)
@@ -60,4 +74,25 @@ func randomID() int64 {
 		panic(err) // crypto/rand never fails on supported platforms
 	}
 	return int64(binary.LittleEndian.Uint64(buf[:]))
+}
+
+// scheduledMessage finds the message in an updateNewScheduledMessage reply.
+func scheduledMessage(u tgapi.UpdatesClass) *tgapi.Message {
+	var list []tgapi.UpdateClass
+	switch v := u.(type) {
+	case *tgapi.Updates:
+		list = v.Updates
+	case *tgapi.UpdatesCombined:
+		list = v.Updates
+	case *tgapi.UpdateShort:
+		list = []tgapi.UpdateClass{v.Update}
+	}
+	for _, x := range list {
+		if n, ok := x.(*tgapi.UpdateNewScheduledMessage); ok {
+			if m, ok := n.Message.(*tgapi.Message); ok {
+				return m
+			}
+		}
+	}
+	return nil
 }

@@ -136,6 +136,7 @@ Each message:
 | `date` | Unix seconds |
 | `from` | Sender name. The channel title for channels. `me` for your own messages. |
 | `text` | The message text. For media, a placeholder (see below), followed by the caption if there is one, for example `[photo] caption`. |
+| `reply_to` | int, omitted if the message is not a reply. The `id` of the message it replies to, in the same chat. Omitted for a reply to a message in another chat, and for a forum message that only belongs to a topic. |
 
 Placeholders for media: `[photo]`, `[video]`, `[voice]`, `[audio]`, `[video_note]`, `[sticker]`, `[gif]`, `[document name]`, `[location]`, `[contact]`, `[poll]`, `[media]`. A document without a file name is `[document]`. Service messages appear as `[service: ...]` (for example `[service: message pinned]`). Other service messages are plain `[service]`.
 
@@ -155,8 +156,11 @@ Input:
 | `chat_type` | string, required | `type` from `list_chats` |
 | `text` | string, required | Message text in Markdown (see below). Blank text fails with `text is required`. |
 | `reply_to` | int, optional | `id` of a message from `read_chat` to reply to. |
+| `schedule_date` | int64, optional | Unix seconds. Telegram holds the message and sends it at this time. Must be in the future and at most 365 days ahead, otherwise the call fails. |
 
 Output: `{ "id": int, "date": int }`, the id and Unix time of the sent message.
+
+With `schedule_date`, the output is `{ "id": int, "date": int, "scheduled": true }`, and `date` is the scheduled time. This `id` is a scheduled-message id. `read_chat` does not show scheduled messages, and `reply_to` cannot use this id: Telegram gives the message a new id when it sends it. If Telegram does not return the scheduled message, `id` is omitted.
 
 Markdown is CommonMark, parsed leniently: an unmatched marker is sent as plain text, never as an error.
 
@@ -328,6 +332,8 @@ Run these checks yourself after the first setup.
   ```
   hello **bold** _italic_ ~~strike~~ ||spoiler|| `code` [link](https://example.com)
   ```
+- [ ] Call `read_chat` on that Saved Messages chat. The reply has `reply_to` set to the first message's `id`. The first message has no `reply_to`.
+- [ ] Call `send_message` to Saved Messages with `schedule_date` set to 2 minutes from now. The result has `scheduled: true`. The message shows under scheduled messages in the Telegram app and arrives at that time. A `schedule_date` in the past fails with `schedule_date must be in the future`.
 - [ ] Call `send_file` once per kind (`photo`, `document`, `audio`, `voice`, `video`, `video_note`) to your Saved Messages chat, with files inside the download folder. Each one arrives. Check that the voice message and the video circle show correctly in the Telegram app on phone and desktop.
 - [ ] Call `send_file` with a path outside the allowed folders. It fails with `path is outside the allowed folders (TELEGRAM_MCP_SEND_DIRS)`.
 - [ ] `ls -l ~/.config/telegram-mcp/peers.json` shows `-rw-------`.

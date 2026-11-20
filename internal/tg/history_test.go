@@ -80,7 +80,7 @@ func TestReadChat_RendersPage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertMessages(t, res.Messages, []Message{{30, 300, "me", "hi"}, {20, 200, "Ann", "yo"}})
+	assertMessages(t, res.Messages, []Message{{ID: 30, Date: 300, From: "me", Text: "hi"}, {ID: 20, Date: 200, From: "Ann", Text: "yo"}})
 	// A short slice does not end paging: only an empty page does.
 	if res.NextBeforeID == nil || *res.NextBeforeID != 20 {
 		t.Fatalf("NextBeforeID = %v, want 20", res.NextBeforeID)
@@ -114,7 +114,7 @@ func TestReadChat_CompleteResponseEndsPaging(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertMessages(t, res.Messages, []Message{{30, 300, "me", "hi"}, {20, 200, "Ann", "yo"}})
+	assertMessages(t, res.Messages, []Message{{ID: 30, Date: 300, From: "me", Text: "hi"}, {ID: 20, Date: 200, From: "Ann", Text: "yo"}})
 	if res.NextBeforeID != nil {
 		t.Errorf("NextBeforeID = %d, want nil", *res.NextBeforeID)
 	}
@@ -197,7 +197,7 @@ func TestReadChat_SinceDateCutsPage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertMessages(t, res.Messages, []Message{{30, 300, "me", "hi"}})
+	assertMessages(t, res.Messages, []Message{{ID: 30, Date: 300, From: "me", Text: "hi"}})
 	if res.NextBeforeID != nil {
 		t.Errorf("NextBeforeID = %d, want nil", *res.NextBeforeID)
 	}
@@ -233,7 +233,7 @@ func TestReadChat_SkipsMessageEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertMessages(t, res.Messages, []Message{{30, 300, "Ann", "hi"}})
+	assertMessages(t, res.Messages, []Message{{ID: 30, Date: 300, From: "Ann", Text: "hi"}})
 	if res.NextBeforeID == nil || *res.NextBeforeID != 25 {
 		t.Fatalf("NextBeforeID = %v, want 25", res.NextBeforeID)
 	}
@@ -258,7 +258,7 @@ func TestReadChat_ChannelPeerTitle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertMessages(t, res.Messages, []Message{{5, 50, "News", "news"}})
+	assertMessages(t, res.Messages, []Message{{ID: 5, Date: 50, From: "News", Text: "news"}})
 }
 
 func TestReadChat_DeletedSender(t *testing.T) {
@@ -275,7 +275,7 @@ func TestReadChat_DeletedSender(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertMessages(t, res.Messages, []Message{{1, 10, "Deleted Account", "bye"}})
+	assertMessages(t, res.Messages, []Message{{ID: 1, Date: 10, From: "Deleted Account", Text: "bye"}})
 }
 
 func TestReadChat_UnknownPeer(t *testing.T) {
@@ -302,7 +302,7 @@ func TestReadChat_ServiceMessage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertMessages(t, res.Messages, []Message{{4, 40, "Ann", "[service: message pinned]"}})
+	assertMessages(t, res.Messages, []Message{{ID: 4, Date: 40, From: "Ann", Text: "[service: message pinned]"}})
 }
 
 func TestReadChat_PeerTitleAbsent(t *testing.T) {
@@ -316,7 +316,7 @@ func TestReadChat_PeerTitleAbsent(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Private chat whose user is absent: "Deleted Account", never an empty from.
-	assertMessages(t, res.Messages, []Message{{1, 10, "Deleted Account", "hi"}})
+	assertMessages(t, res.Messages, []Message{{ID: 1, Date: 10, From: "Deleted Account", Text: "hi"}})
 }
 
 // expectScanPage expects one resolve scan getDialogs call for the folder,
@@ -370,7 +370,7 @@ func readAnn(t *testing.T, s *Service) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertMessages(t, res.Messages, []Message{{30, 300, "me", "hi"}, {20, 200, "Ann", "yo"}})
+	assertMessages(t, res.Messages, []Message{{ID: 30, Date: 300, From: "me", Text: "hi"}, {ID: 20, Date: 200, From: "Ann", Text: "yo"}})
 }
 
 func TestResolvePeer_ScansMainFolder(t *testing.T) {

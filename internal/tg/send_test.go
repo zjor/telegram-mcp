@@ -104,3 +104,81 @@ func TestSendMessage_UnknownChat(t *testing.T) {
 		t.Fatalf("err = %v, want ErrUnknownChat", err)
 	}
 }
+
+func TestSendMessage_NotScheduled(t *testing.T) {
+	s, mock, _ := newTestService(t)
+	s.peers.Put(ChatPrivate, 7, 9)
+	mock.ExpectFunc(func(b bin.Encoder) {
+		if sd, ok := sendRequest(t, b).GetScheduleDate(); ok {
+			t.Errorf("ScheduleDate = %d, want unset", sd)
+		}
+	}).ThenResult(&tgapi.UpdateShortSentMessage{ID: 42, Date: 500})
+
+	res, err := s.SendMessage(context.Background(), SendMessageParams{ChatID: 7, ChatType: ChatPrivate, Text: "ok"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Scheduled {
+		t.Fatal("Scheduled = true, want false")
+	}
+}
+
+func TestSendMessage_Scheduled(t *testing.T) {
+	s, mock, _ := newTestService(t)
+	s.peers.Put(ChatPrivate, 7, 9)
+	mock.ExpectFunc(func(b bin.Encoder) {
+		if sd, ok := sendRequest(t, b).GetScheduleDate(); !ok || sd != 2000 {
+			t.Errorf("ScheduleDate = %d, %v, want 2000", sd, ok)
+		}
+	}).ThenResult(&tgapi.Updates{Updates: []tgapi.UpdateClass{
+		&tgapi.UpdateMessageID{ID: 3},
+		&tgapi.UpdateNewScheduledMessage{Message: &tgapi.Message{ID: 3, Date: 2000, Message: "ok", PeerID: &tgapi.PeerUser{UserID: 7}}},
+	}})
+
+	res, err := s.SendMessage(context.Background(), SendMessageParams{ChatID: 7, ChatType: ChatPrivate, Text: "ok", ScheduleDate: 2000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := SendMessageResult{ID: 3, Date: 2000, Scheduled: true}
+	if *res != want {
+		t.Fatalf("result = %+v, want %+v", *res, want)
+	}
+}
+
+func TestSendMessage_ScheduledNoMessageInReply(t *testing.T) {
+	s, mock, _ := newTestService(t)
+	s.peers.Put(ChatPrivate, 7, 9)
+	mock.ExpectFunc(func(b bin.Encoder) { sendRequest(t, b) }).ThenResult(&tgapi.Updates{})
+
+	res, err := s.SendMessage(context.Background(), SendMessageParams{ChatID: 7, ChatType: ChatPrivate, Text: "ok", ScheduleDate: 2000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := SendMessageResult{Date: 2000, Scheduled: true}
+	if *res != want {
+		t.Fatalf("result = %+v, want %+v", *res, want)
+	}
+}
+
+func TestScheduledMessage(t *testing.T) {
+	m := &tgapi.Message{ID: 7, Date: 1000}
+	upd := &tgapi.UpdateNewScheduledMessage{Message: m}
+	tests := []struct {
+		name string
+		u    tgapi.UpdatesClass
+		want *tgapi.Message
+	}{
+		{"updates", &tgapi.Updates{Updates: []tgapi.UpdateClass{&tgapi.UpdateMessageID{ID: 7}, upd}}, m},
+		{"updates combined", &tgapi.UpdatesCombined{Updates: []tgapi.UpdateClass{upd}}, m},
+		{"update short", &tgapi.UpdateShort{Update: upd}, m},
+		{"empty", &tgapi.Updates{}, nil},
+		{"other type", &tgapi.UpdateShortSentMessage{ID: 7}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := scheduledMessage(tt.u); got != tt.want {
+				t.Errorf("got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
