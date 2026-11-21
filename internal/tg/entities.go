@@ -293,8 +293,21 @@ func (r *entityRenderer) render(lo, hi int, spans []span) string {
 			rest = append(rest, spans[bi+1:]...)
 			sb.WriteString(quote(r.render(start, end, rest)))
 		}
-		if end < hi && r.u[end] != '\n' && !strings.HasSuffix(sb.String(), "\n") {
-			sb.WriteByte('\n')
+		if end < hi {
+			// Text after a pre block starts on a new line. Text after a quote
+			// needs a blank line, or Markdown reads it as part of the quote.
+			// A newline in the source after the block counts toward this.
+			need := 1
+			if b.kind == spanQuote {
+				need = 2
+			}
+			have := len(sb.String()) - len(strings.TrimRight(sb.String(), "\n"))
+			if r.u[end] == '\n' {
+				have++
+			}
+			for ; have < need; have++ {
+				sb.WriteByte('\n')
+			}
 		}
 		pos = end
 	}

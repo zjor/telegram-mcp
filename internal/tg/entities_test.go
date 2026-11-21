@@ -42,7 +42,7 @@ var entitiesCases = []entitiesCase{
 	{"empty range", "abc", ents(&tgapi.MessageEntityBold{Offset: 1}), "abc"},
 	// Extra cases beyond the brief.
 	{"code partly bold", "abcdef", ents(&tgapi.MessageEntityBold{Length: 5}, &tgapi.MessageEntityCode{Offset: 2, Length: 2}), "**ab`cd`e**f"},
-	{"bold in quote", "x\nq1 q2\ny", ents(&tgapi.MessageEntityBlockquote{Offset: 2, Length: 5}, &tgapi.MessageEntityBold{Offset: 0, Length: 4}), "**x**\n> **q1** q2\ny"},
+	{"bold in quote", "x\nq1 q2\ny", ents(&tgapi.MessageEntityBlockquote{Offset: 2, Length: 5}, &tgapi.MessageEntityBold{Offset: 0, Length: 4}), "**x**\n> **q1** q2\n\ny"},
 	{"pre in quote", "q\nc", ents(&tgapi.MessageEntityBlockquote{Length: 3}, &tgapi.MessageEntityPre{Offset: 2, Length: 1}), "> q\n> ```\n> c\n> ```"},
 	{"pre with fence inside", "```\nx", ents(&tgapi.MessageEntityPre{Length: 5}), "````\n```\nx\n````"},
 	// Final review fixes.
@@ -54,6 +54,9 @@ var entitiesCases = []entitiesCase{
 		&tgapi.MessageEntityBold{Offset: 3, Length: 3},
 	), "**a [b](u), c**"},
 	{"merge nested same style", "abc", ents(&tgapi.MessageEntityBold{Length: 3}, &tgapi.MessageEntityBold{Offset: 1, Length: 1}), "**abc**"},
+	{"quote then text", "quoted\nnext", ents(&tgapi.MessageEntityBlockquote{Length: 6}), "> quoted\n\nnext"},
+	{"quote mid line", "x quoted y", ents(&tgapi.MessageEntityBlockquote{Offset: 2, Length: 6}), "x \n> quoted\n\n y"},
+	{"quote with newline then text", "q\n\nnext", ents(&tgapi.MessageEntityBlockquote{Length: 2}), "> q\n\nnext"},
 	{"no merge of different links", "ab", ents(&tgapi.MessageEntityTextURL{Length: 1, URL: "u"}, &tgapi.MessageEntityTextURL{Offset: 1, Length: 1, URL: "v"}), "[a](u)[b](v)"},
 }
 
