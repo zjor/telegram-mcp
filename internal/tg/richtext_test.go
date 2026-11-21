@@ -209,3 +209,36 @@ func TestRenderRich_NestedAndNumbered(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+func TestRenderRich_EmbedPostAuthorDate(t *testing.T) {
+	got := RenderRich(rich(&tgapi.PageBlockEmbedPost{
+		URL:     "u",
+		Author:  "Ann",
+		Date:    86400,
+		Caption: tgapi.PageCaption{Text: p("cap")},
+		Blocks:  []tgapi.PageBlockClass{para(p("inner"))},
+	}))
+	if want := "[embed u] Ann, 1970-01-02 cap\n\n> inner"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestRenderRich_RelatedArticles(t *testing.T) {
+	got := RenderRich(rich(&tgapi.PageBlockRelatedArticles{
+		Title: p("More"),
+		Articles: []tgapi.PageRelatedArticle{
+			{URL: "u", Title: "T", Description: "d", Author: "A"},
+			{URL: "v", Title: "Only title"},
+			{URL: "w", Description: "no title"},
+			{Title: "No URL", Author: "B"},
+		},
+	}))
+	want := "More\n\n" +
+		"- [T](u) — d (A)\n" +
+		"- [Only title](v)\n" +
+		"- [w](w) — no title\n" +
+		"- No URL (B)"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

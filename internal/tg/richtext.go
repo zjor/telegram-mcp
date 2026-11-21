@@ -99,7 +99,11 @@ func renderBlock(b tgapi.PageBlockClass) string {
 	case *tgapi.PageBlockSlideshow:
 		return joinBlocks(media("[album]", b.Caption), renderBlocks(b.Items))
 	case *tgapi.PageBlockEmbedPost:
-		return joinBlocks(media(embedPlaceholder(b.URL), b.Caption), prefixLines(renderBlocks(b.Blocks), "> ", "> "))
+		head := embedPlaceholder(b.URL)
+		if by := authorDateText(b.Author, b.Date); by != "" {
+			head += " " + by
+		}
+		return joinBlocks(media(head, b.Caption), prefixLines(renderBlocks(b.Blocks), "> ", "> "))
 	case *tgapi.PageBlockCover:
 		return renderBlock(b.Cover)
 	case *tgapi.PageBlockRelatedArticles:
@@ -140,12 +144,17 @@ func heading(level int, t tgapi.RichTextClass) string {
 }
 
 func authorDate(b *tgapi.PageBlockAuthorDate) string {
+	return authorDateText(renderRichText(b.Author), b.PublishedDate)
+}
+
+// authorDateText renders "author, YYYY-MM-DD" (UTC), leaving out empty parts.
+func authorDateText(author string, date int) string {
 	parts := []string{}
-	if s := renderRichText(b.Author); s != "" {
-		parts = append(parts, s)
+	if author != "" {
+		parts = append(parts, author)
 	}
-	if b.PublishedDate != 0 {
-		parts = append(parts, time.Unix(int64(b.PublishedDate), 0).UTC().Format("2006-01-02"))
+	if date != 0 {
+		parts = append(parts, time.Unix(int64(date), 0).UTC().Format("2006-01-02"))
 	}
 	return strings.Join(parts, ", ")
 }
@@ -297,6 +306,8 @@ func table(b *tgapi.PageBlockTable) string {
 	return strings.Join(lines, "\n")
 }
 
+// relatedArticles renders each article as "- [title](url) — description
+// (author)", leaving out empty parts.
 func relatedArticles(b *tgapi.PageBlockRelatedArticles) string {
 	var lines []string
 	if t := renderRichText(b.Title); t != "" {
@@ -307,12 +318,18 @@ func relatedArticles(b *tgapi.PageBlockRelatedArticles) string {
 		if title == "" {
 			title = a.URL
 		}
-		if a.URL == "" {
-			lines = append(lines, "- "+title)
-			continue
+		line := title
+		if a.URL != "" {
+			m := linkMarker(a.URL)
+			line = m.open + title + m.close
 		}
-		m := linkMarker(a.URL)
-		lines = append(lines, "- "+m.open+title+m.close)
+		if a.Description != "" {
+			line += " — " + a.Description
+		}
+		if a.Author != "" {
+			line += " (" + a.Author + ")"
+		}
+		lines = append(lines, "- "+strings.TrimSpace(line))
 	}
 	return strings.TrimRight(strings.Join(lines, "\n"), "\n")
 }
