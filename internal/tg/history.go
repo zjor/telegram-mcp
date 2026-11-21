@@ -53,6 +53,11 @@ func (s *Service) ReadChat(ctx context.Context, p ReadChatParams) (*ReadChatResu
 	result := &ReadChatResult{Messages: []Message{}}
 	cutOff := false
 	for _, mc := range messages { // newest first
+		if tm, ok := mc.(*tgapi.Message); ok {
+			if rm, ok := tm.GetRichMessage(); ok && rm.Part {
+				s.completeRich(ctx, peer, tm)
+			}
+		}
 		m, ok := RenderMessage(mc, names, peerTitle)
 		if !ok {
 			continue // MessageEmpty
@@ -75,6 +80,43 @@ func (s *Service) ReadChat(ctx context.Context, p ReadChatParams) (*ReadChatResu
 		result.NextBeforeID = &next
 	}
 	return result, nil
+}
+
+// completeRich replaces the rich content of a partial post with the full post.
+// On failure it keeps the start and appends a "[truncated]" block.
+func (s *Service) completeRich(ctx context.Context, peer tgapi.InputPeerClass, m *tgapi.Message) {
+	full, err := s.fetchRich(ctx, peer, m.ID)
+	if err != nil {
+		slog.Warn("get rich message", "id", m.ID, "err", err)
+		rm, _ := m.GetRichMessage()
+		rm.Blocks = append(rm.Blocks, &tgapi.PageBlockParagraph{Text: &tgapi.TextPlain{Text: "[truncated]"}})
+		m.SetRichMessage(rm)
+		return
+	}
+	m.SetRichMessage(full)
+}
+
+func (s *Service) fetchRich(ctx context.Context, peer tgapi.InputPeerClass, id int) (tgapi.RichMessage, error) {
+	resp, err := s.api.MessagesGetRichMessage(ctx, &tgapi.MessagesGetRichMessageRequest{Peer: peer, ID: id})
+	if err != nil {
+		return tgapi.RichMessage{}, err
+	}
+	modified, ok := resp.AsModified()
+	if !ok {
+		return tgapi.RichMessage{}, ErrMessageNotFound
+	}
+	s.peers.PutFromResponse(modified.GetUsers(), modified.GetChats())
+	if err := s.peers.Save(); err != nil {
+		slog.Warn("save peer cache", "err", err)
+	}
+	for _, mc := range modified.GetMessages() {
+		if fm, ok := mc.(*tgapi.Message); ok && fm.ID == id {
+			if rm, ok := fm.GetRichMessage(); ok {
+				return rm, nil
+			}
+		}
+	}
+	return tgapi.RichMessage{}, ErrMessageNotFound
 }
 
 // Resolve scan limits: page size and the most pages read per folder.
