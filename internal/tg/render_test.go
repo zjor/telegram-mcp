@@ -13,6 +13,17 @@ func docMsg(text string, attrs ...tgapi.DocumentAttributeClass) *tgapi.Message {
 	}
 }
 
+func richMsg(blocks ...tgapi.PageBlockClass) *tgapi.Message {
+	m := &tgapi.Message{}
+	m.SetRichMessage(tgapi.RichMessage{Blocks: blocks})
+	return m
+}
+
+func withMedia(m *tgapi.Message) *tgapi.Message {
+	m.Media = &tgapi.MessageMediaPhoto{}
+	return m
+}
+
 func TestRenderText(t *testing.T) {
 	tests := []struct {
 		name string
@@ -36,6 +47,10 @@ func TestRenderText(t *testing.T) {
 		{"poll", &tgapi.Message{Media: &tgapi.MessageMediaPoll{}}, "[poll]"},
 		{"webpage", &tgapi.Message{Message: "see https://x", Media: &tgapi.MessageMediaWebPage{}}, "see https://x"},
 		{"unsupported", &tgapi.Message{Media: &tgapi.MessageMediaUnsupported{}}, "[media]"},
+		{"entities", &tgapi.Message{Message: "hi you", Entities: ents(&tgapi.MessageEntityBold{Offset: 3, Length: 3})}, "hi **you**"},
+		{"photo caption entities", &tgapi.Message{Message: "cap", Entities: ents(&tgapi.MessageEntityItalic{Length: 3}), Media: &tgapi.MessageMediaPhoto{}}, "[photo] *cap*"},
+		{"rich", richMsg(&tgapi.PageBlockHeading1{Text: &tgapi.TextPlain{Text: "T"}}, para(p("body"))), "# T\n\nbody"},
+		{"rich with media", withMedia(richMsg(para(p("a\nb")))), "[photo]\n\na\nb"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -76,15 +76,28 @@ func UserName(u *tgapi.User) string {
 	return strings.TrimSpace(u.FirstName + " " + u.LastName)
 }
 
+// RenderText returns the message text as Markdown, prefixed by a media
+// placeholder. A rich post is rendered from its blocks; any other message
+// from its entities.
 func RenderText(m *tgapi.Message) string {
 	placeholder := mediaPlaceholder(m.Media)
+	var body string
+	sep := " "
+	if rm, ok := m.GetRichMessage(); ok {
+		body = RenderRich(rm)
+		if strings.Contains(body, "\n") {
+			sep = "\n\n"
+		}
+	} else {
+		body = RenderEntities(m.Message, m.Entities)
+	}
 	switch {
 	case placeholder == "":
-		return m.Message
-	case m.Message == "":
+		return body
+	case body == "":
 		return placeholder
 	}
-	return placeholder + " " + m.Message
+	return placeholder + sep + body
 }
 
 func mediaPlaceholder(media tgapi.MessageMediaClass) string {
