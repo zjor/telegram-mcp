@@ -135,7 +135,7 @@ Each message:
 | `id` | int |
 | `date` | Unix seconds |
 | `from` | Sender name. The channel title for channels. `me` for your own messages. |
-| `text` | The message text. For media, a placeholder (see below), followed by the caption if there is one, for example `[photo] caption`. |
+| `text` | The message text as Markdown (see [Text format](#text-format)). For media, a placeholder (see below), followed by the caption if there is one, for example `[photo] caption`. |
 | `reply_to` | int, omitted if the message is not a reply. The `id` of the message it replies to, in the same chat. Omitted for a reply to a message in another chat, and for a forum message that only belongs to a topic. |
 
 Placeholders for media: `[photo]`, `[video]`, `[voice]`, `[audio]`, `[video_note]`, `[sticker]`, `[gif]`, `[document name]`, `[location]`, `[contact]`, `[poll]`, `[media]`. A document without a file name is `[document]`. Service messages appear as `[service: ...]` (for example `[service: message pinned]`). Other service messages are plain `[service]`.
@@ -143,6 +143,35 @@ Placeholders for media: `[photo]`, `[video]`, `[voice]`, `[audio]`, `[video_note
 `next_before_id` is the lowest message id on the page Telegram returned. Deleted and service entries count too, so it can be lower than the last `id` in `messages`. Paging ends when a call returns no messages: then `next_before_id` is `null`. It is also `null` when Telegram returned the whole chat in one call, or when `since_date` cut the page off. A page can have an empty `messages` list and a non-null `next_before_id`; keep paging.
 
 If the chat is not in the local peer cache, the server scans your dialogs (main and archive, at most 20 pages per folder) to find it. If it still cannot find it, it returns an error that tells you to call `list_chats`.
+
+#### Text format
+
+`text` is Markdown. The server does not escape anything, so `file_name_v2` stays `file_name_v2`.
+
+| Telegram style | Markdown |
+| --- | --- |
+| bold | `**text**` |
+| italic | `*text*` |
+| strikethrough | `~~text~~` |
+| inline code | `` `text` `` |
+| spoiler | `\|\|text\|\|` |
+| marked (rich posts only) | `==text==` |
+| link | `[text](url)` |
+| mention of a user by id | `[text](tg://user?id=N)` |
+| code block | fenced block, with the language if there is one |
+| quote | `> ` before each line |
+
+Underline, mentions (`@name`), hashtags and plain URLs stay as plain text. A message with no formatting is returned unchanged.
+
+Rich posts (Telegram's block posts) are also Markdown:
+
+- `Heading1` to `Heading6` become 1 to 6 `#`.
+- Lists become `- item` or `1. item`.
+- Quotes become `> text`.
+- Tables become GFM tables. Code becomes fenced blocks.
+- Photos, videos and other media inside a rich post are placeholders such as `[photo]`, with the caption after it. You cannot download them with `download_media`.
+
+Telegram sometimes sends only the start of a rich post. The server then makes one extra call to get the full post. If that call fails, the text ends with `[truncated]`.
 
 ### `send_message`
 

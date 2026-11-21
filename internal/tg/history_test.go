@@ -8,6 +8,7 @@ import (
 
 	"github.com/gotd/td/bin"
 	tgapi "github.com/gotd/td/tg"
+	"github.com/gotd/td/tgerr"
 	"github.com/gotd/td/tgmock"
 )
 
@@ -435,4 +436,99 @@ func TestResolvePeer_PagesUntilFound(t *testing.T) {
 	}).ThenResult(annDialogs())
 	expectAnnHistory(t, mock)
 	readAnn(t, s)
+}
+
+func partialMsg(id int, part bool, blocks ...tgapi.PageBlockClass) *tgapi.Message {
+	m := textMsg(id, 100, nil, "")
+	m.SetRichMessage(tgapi.RichMessage{Part: part, Blocks: blocks})
+	return m
+}
+
+// expectRichHistory queues the history reply holding one rich post (id 5).
+func expectRichHistory(mock *tgmock.Mock, part bool) {
+	mock.ExpectFunc(func(bin.Encoder) {}).ThenResult(&tgapi.MessagesMessages{
+		Messages: []tgapi.MessageClass{partialMsg(5, part, para(p("start")))},
+		Users:    annUsers(),
+	})
+}
+
+func expectGetRich(t *testing.T, mock *tgmock.Mock) *tgmock.RequestBuilder {
+	return mock.ExpectFunc(func(b bin.Encoder) {
+		req, ok := b.(*tgapi.MessagesGetRichMessageRequest)
+		if !ok {
+			t.Fatalf("request type %T, want *MessagesGetRichMessageRequest", b)
+		}
+		peer, ok := req.Peer.(*tgapi.InputPeerUser)
+		if !ok || peer.UserID != 7 || peer.AccessHash != 9 || req.ID != 5 {
+			t.Errorf("request = %+v, want peer user 7/9, ID 5", req)
+		}
+	})
+}
+
+func readRich(t *testing.T, s *Service) string {
+	t.Helper()
+	res, err := s.ReadChat(context.Background(), ReadChatParams{ChatID: 7, ChatType: ChatPrivate})
+	if err != nil {
+		t.Fatalf("ReadChat: %v", err)
+	}
+	if len(res.Messages) != 1 {
+		t.Fatalf("got %d messages, want 1", len(res.Messages))
+	}
+	return res.Messages[0].Text
+}
+
+func TestReadChat_PartialRichFetchesFull(t *testing.T) {
+	s, mock, _ := newTestService(t)
+	s.peers.Put(ChatPrivate, 7, 9)
+	expectRichHistory(mock, true)
+	expectGetRich(t, mock).ThenResult(&tgapi.MessagesMessages{
+		Messages: []tgapi.MessageClass{partialMsg(5, false, para(p("start")), para(p("end")))},
+	})
+	if got := readRich(t, s); got != "start\n\nend" {
+		t.Errorf("Text = %q, want %q", got, "start\n\nend")
+	}
+}
+
+func TestReadChat_PartialRichFetchError(t *testing.T) {
+	s, mock, _ := newTestService(t)
+	s.peers.Put(ChatPrivate, 7, 9)
+	expectRichHistory(mock, true)
+	expectGetRich(t, mock).ThenRPCErr(&tgerr.Error{Code: 400, Message: "MESSAGE_ID_INVALID", Type: "MESSAGE_ID_INVALID"})
+	if got := readRich(t, s); got != "start\n\n[truncated]" {
+		t.Errorf("Text = %q, want %q", got, "start\n\n[truncated]")
+	}
+}
+
+func TestReadChat_PartialRichMissingInResponse(t *testing.T) {
+	s, mock, _ := newTestService(t)
+	s.peers.Put(ChatPrivate, 7, 9)
+	expectRichHistory(mock, true)
+	expectGetRich(t, mock).ThenResult(&tgapi.MessagesMessages{
+		Messages: []tgapi.MessageClass{partialMsg(6, false, para(p("other")))},
+	})
+	if got := readRich(t, s); got != "start\n\n[truncated]" {
+		t.Errorf("Text = %q, want %q", got, "start\n\n[truncated]")
+	}
+}
+
+func TestReadChat_CompleteRichNoExtraCall(t *testing.T) {
+	s, mock, _ := newTestService(t)
+	s.peers.Put(ChatPrivate, 7, 9)
+	expectRichHistory(mock, false)
+	if got := readRich(t, s); got != "start" {
+		t.Errorf("Text = %q, want %q", got, "start")
+	}
+}
+
+func TestReadChat_PartialRichOlderThanSinceDate(t *testing.T) {
+	s, mock, _ := newTestService(t)
+	s.peers.Put(ChatPrivate, 7, 9)
+	expectRichHistory(mock, true) // post date is 100; no getRichMessage call expected
+	res, err := s.ReadChat(context.Background(), ReadChatParams{ChatID: 7, ChatType: ChatPrivate, SinceDate: 200})
+	if err != nil {
+		t.Fatalf("ReadChat: %v", err)
+	}
+	if len(res.Messages) != 0 {
+		t.Errorf("got %d messages, want 0", len(res.Messages))
+	}
 }
