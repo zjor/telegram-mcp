@@ -57,6 +57,8 @@ var entitiesCases = []entitiesCase{
 	{"quote then text", "quoted\nnext", ents(&tgapi.MessageEntityBlockquote{Length: 6}), "> quoted\n\nnext"},
 	{"quote mid line", "x quoted y", ents(&tgapi.MessageEntityBlockquote{Offset: 2, Length: 6}), "x \n> quoted\n\n y"},
 	{"quote with newline then text", "q\n\nnext", ents(&tgapi.MessageEntityBlockquote{Length: 2}), "> q\n\nnext"},
+	{"bold split at blank line", "a\n\nb", ents(&tgapi.MessageEntityBold{Length: 4}), "**a**\n\n**b**"},
+	{"link split at newline", "a\nb", ents(&tgapi.MessageEntityTextURL{Length: 3, URL: "u"}), "[a](u)\n[b](u)"},
 	{"no merge of different links", "ab", ents(&tgapi.MessageEntityTextURL{Length: 1, URL: "u"}, &tgapi.MessageEntityTextURL{Offset: 1, Length: 1, URL: "v"}), "[a](u)[b](v)"},
 }
 

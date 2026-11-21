@@ -242,3 +242,63 @@ func TestRenderRich_RelatedArticles(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+func TestRenderRich_StyleSplitAtNewline(t *testing.T) {
+	got := RenderRich(rich(para(&tgapi.TextBold{Text: p("a\n\nb")})))
+	if want := "**a**\n\n**b**"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestRenderRich_HeadingOneLine(t *testing.T) {
+	got := RenderRich(rich(&tgapi.PageBlockHeading1{Text: p("a\nb")}))
+	if want := "# a b"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestRenderRich_DropsWhitespaceBlock(t *testing.T) {
+	got := RenderRich(rich(para(p("x")), para(p("  ")), para(p("y"))))
+	if want := "x\n\ny"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestRenderRich_Details(t *testing.T) {
+	got := RenderRich(rich(&tgapi.PageBlockDetails{
+		Title:  p("More"),
+		Blocks: []tgapi.PageBlockClass{para(p("body"))},
+	}))
+	if want := "**More**\n\nbody"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestRenderRich_AuthorDate(t *testing.T) {
+	got := RenderRich(rich(&tgapi.PageBlockAuthorDate{Author: p("Ann"), PublishedDate: 86400}))
+	if want := "Ann, 1970-01-02"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestRenderRich_TableWithTitle(t *testing.T) {
+	got := RenderRich(rich(&tgapi.PageBlockTable{
+		Title: p("T"),
+		Rows: []tgapi.PageTableRow{
+			{Cells: []tgapi.PageTableCell{{Text: p("h")}}},
+			{Cells: []tgapi.PageTableCell{{Text: p("c")}}},
+		},
+	}))
+	if want := "T\n\n| h |\n| --- |\n| c |"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestRenderRich_ButtonRow(t *testing.T) {
+	got := RenderRich(rich(&tgapi.PageBlockButtonRow{
+		Buttons: []tgapi.PageButton{{Text: p("Go")}, {}, {Text: p("Stop")}},
+	}))
+	if want := "Go · Stop"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

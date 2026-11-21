@@ -21,7 +21,7 @@ func RenderRich(rm tgapi.RichMessage) string {
 func renderBlocks(blocks []tgapi.PageBlockClass) string {
 	parts := make([]string, 0, len(blocks))
 	for _, b := range blocks {
-		if s := strings.Trim(renderBlock(b), "\n"); s != "" {
+		if s := strings.Trim(renderBlock(b), "\n"); strings.TrimSpace(s) != "" {
 			parts = append(parts, s)
 		}
 	}
@@ -136,8 +136,8 @@ func joinBlocks(parts ...string) string {
 }
 
 func heading(level int, t tgapi.RichTextClass) string {
-	s := renderRichText(t)
-	if s == "" {
+	s := strings.ReplaceAll(renderRichText(t), "\n", " ")
+	if strings.TrimSpace(s) == "" {
 		return ""
 	}
 	return strings.Repeat("#", level) + " " + s
@@ -411,9 +411,18 @@ func richText(t tgapi.RichTextClass, plain bool) string {
 // styled wraps s in the marker for kind.
 func styled(kind styleKind, s string) string { return wrap(styleMarker(kind), s) }
 
-// wrap puts m tight around s. Leading and trailing whitespace of s goes
-// outside the markers. Whitespace-only s is returned as it is.
+// wrap puts m tight around each line of s, so no marker spans a newline.
+// Leading and trailing whitespace of a line goes outside the markers.
+// Whitespace-only lines are returned as they are.
 func wrap(m marker, s string) string {
+	lines := strings.Split(s, "\n")
+	for i, l := range lines {
+		lines[i] = wrapLine(m, l)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func wrapLine(m marker, s string) string {
 	core := strings.TrimFunc(s, unicode.IsSpace)
 	if core == "" {
 		return s

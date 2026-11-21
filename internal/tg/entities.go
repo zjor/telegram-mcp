@@ -346,16 +346,24 @@ func (r *entityRenderer) inline(lo, hi int, all []span) string {
 			continue
 		}
 		s.start, s.end = max(s.start, lo), min(s.end, hi)
-		if s.kind != spanCode {
-			for s.start < s.end && r.isSpace(s.start) {
-				s.start++
+		if s.kind == spanCode {
+			if s.start < s.end {
+				spans = append(spans, s)
 			}
-			for s.start < s.end && r.isSpace(s.end-1) {
-				s.end--
-			}
+			continue
 		}
-		if s.start < s.end {
-			spans = append(spans, s)
+		// A marker must not span a newline: split at each one, and keep
+		// edge whitespace outside the markers.
+		for _, part := range r.splitLines(s) {
+			for part.start < part.end && r.isSpace(part.start) {
+				part.start++
+			}
+			for part.start < part.end && r.isSpace(part.end-1) {
+				part.end--
+			}
+			if part.start < part.end {
+				spans = append(spans, part)
+			}
 		}
 	}
 	// Drop spans that lie fully inside a code span: code text has no markers.
@@ -463,6 +471,21 @@ func insideCode(s span, spans []span) bool {
 		}
 	}
 	return false
+}
+
+// splitLines splits s at each newline. The newlines are left out of the parts.
+func (r *entityRenderer) splitLines(s span) []span {
+	var parts []span
+	part := s
+	for i := s.start; i < s.end; i++ {
+		if r.u[i] == '\n' {
+			part.end = i
+			parts = append(parts, part)
+			part.start = i + 1
+		}
+	}
+	part.end = s.end
+	return append(parts, part)
 }
 
 func (r *entityRenderer) isSpace(i int) bool { return unicode.IsSpace(rune(r.u[i])) }

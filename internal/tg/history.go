@@ -54,7 +54,9 @@ func (s *Service) ReadChat(ctx context.Context, p ReadChatParams) (*ReadChatResu
 	cutOff := false
 	for _, mc := range messages { // newest first
 		if tm, ok := mc.(*tgapi.Message); ok {
-			if rm, ok := tm.GetRichMessage(); ok && rm.Part {
+			// A post older than since_date is cut below, so skip the extra call.
+			older := p.SinceDate > 0 && int64(tm.Date) < p.SinceDate
+			if rm, ok := tm.GetRichMessage(); ok && rm.Part && !older {
 				s.completeRich(ctx, peer, tm)
 			}
 		}

@@ -519,3 +519,16 @@ func TestReadChat_CompleteRichNoExtraCall(t *testing.T) {
 		t.Errorf("Text = %q, want %q", got, "start")
 	}
 }
+
+func TestReadChat_PartialRichOlderThanSinceDate(t *testing.T) {
+	s, mock, _ := newTestService(t)
+	s.peers.Put(ChatPrivate, 7, 9)
+	expectRichHistory(mock, true) // post date is 100; no getRichMessage call expected
+	res, err := s.ReadChat(context.Background(), ReadChatParams{ChatID: 7, ChatType: ChatPrivate, SinceDate: 200})
+	if err != nil {
+		t.Fatalf("ReadChat: %v", err)
+	}
+	if len(res.Messages) != 0 {
+		t.Errorf("got %d messages, want 0", len(res.Messages))
+	}
+}
