@@ -138,7 +138,44 @@ func RenderEntities(text string, ents []tgapi.MessageEntityClass) string {
 	if len(spans) == 0 {
 		return text
 	}
-	return r.render(0, len(r.u), spans)
+	return r.render(0, len(r.u), r.merge(spans))
+}
+
+// merge joins style and link spans with the same marker that overlap, touch
+// or have only whitespace between them. Telegram often splits one styled run
+// into several entities; without this each part gets its own markers, as in
+// "**a****b**", which breaks the Markdown.
+func (r *entityRenderer) merge(spans []span) []span {
+	sort.SliceStable(spans, func(x, y int) bool { return spans[x].start < spans[y].start })
+	var out []span
+	for _, s := range spans {
+		merged := false
+		if s.kind == spanStyle || s.kind == spanLink {
+			for i := range out {
+				o := &out[i]
+				if o.kind == s.kind && o.m == s.m && r.joinable(o.end, s.start) {
+					o.end = max(o.end, s.end)
+					merged = true
+					break
+				}
+			}
+		}
+		if !merged {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// joinable reports whether a span ending at end can be joined with one
+// starting at start: they overlap, touch or have only whitespace between them.
+func (r *entityRenderer) joinable(end, start int) bool {
+	for i := end; i < start; i++ {
+		if !r.isSpace(i) {
+			return false
+		}
+	}
+	return true
 }
 
 func toSpan(e tgapi.MessageEntityClass) (span, bool) {

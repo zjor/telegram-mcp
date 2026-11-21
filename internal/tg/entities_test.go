@@ -45,6 +45,16 @@ var entitiesCases = []entitiesCase{
 	{"bold in quote", "x\nq1 q2\ny", ents(&tgapi.MessageEntityBlockquote{Offset: 2, Length: 5}, &tgapi.MessageEntityBold{Offset: 0, Length: 4}), "**x**\n> **q1** q2\ny"},
 	{"pre in quote", "q\nc", ents(&tgapi.MessageEntityBlockquote{Length: 3}, &tgapi.MessageEntityPre{Offset: 2, Length: 1}), "> q\n> ```\n> c\n> ```"},
 	{"pre with fence inside", "```\nx", ents(&tgapi.MessageEntityPre{Length: 5}), "````\n```\nx\n````"},
+	// Final review fixes.
+	{"merge touching bold", "ab", ents(&tgapi.MessageEntityBold{Length: 1}, &tgapi.MessageEntityBold{Offset: 1, Length: 1}), "**ab**"},
+	{"merge bold over space", "a b", ents(&tgapi.MessageEntityBold{Length: 2}, &tgapi.MessageEntityBold{Offset: 2, Length: 1}), "**a b**"},
+	{"merge bold around link", "a b, c", ents(
+		&tgapi.MessageEntityBold{Length: 1},
+		&tgapi.MessageEntityBold{Offset: 2, Length: 1}, &tgapi.MessageEntityTextURL{Offset: 2, Length: 1, URL: "u"},
+		&tgapi.MessageEntityBold{Offset: 3, Length: 3},
+	), "**a [b](u), c**"},
+	{"merge nested same style", "abc", ents(&tgapi.MessageEntityBold{Length: 3}, &tgapi.MessageEntityBold{Offset: 1, Length: 1}), "**abc**"},
+	{"no merge of different links", "ab", ents(&tgapi.MessageEntityTextURL{Length: 1, URL: "u"}, &tgapi.MessageEntityTextURL{Offset: 1, Length: 1, URL: "v"}), "[a](u)[b](v)"},
 }
 
 func TestRenderEntities(t *testing.T) {
